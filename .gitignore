@@ -1,0 +1,24 @@
+# data lake (raw / silver / snapshots) — never committed
+data/
+
+# secrets
+.env
+*.pem
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# misc
+.DS_Store
+.ipynb_checkpoints/

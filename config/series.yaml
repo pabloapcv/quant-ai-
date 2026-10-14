@@ -1,0 +1,61 @@
+# Canonical series catalog (PRD Appendix A).
+#
+# id                    internal canonical id (REGION.DOMAIN.NAME), stable forever
+# source / source_id    where it comes from
+# frequency             D | W | BW | M | Q | SA | A
+# publication_lag_days  conservative days after PERIOD END until first public release.
+#                       Used only for observations that predate ALFRED vintage coverage
+#                       (rows flagged is_approx_vintage=true).
+# release_time_et       usual release clock time (America/New_York). Combined with the FRED
+#                       vintage date to build knowledge_time. Unknown -> "23:59" (conservative).
+#                       ALWAYS quote times: YAML 1.1 parses 08:30 as base-60 int.
+
+series:
+  # ---------------------------------------------------------------- growth
+  - {id: US.GDP.REAL, source: fred, source_id: GDPC1, frequency: Q, publication_lag_days: 32, release_time_et: "08:30", description: Real GDP, tags: [growth]}
+  - {id: US.IP, source: fred, source_id: INDPRO, frequency: M, publication_lag_days: 18, release_time_et: "09:15", description: Industrial production index, tags: [growth]}
+  - {id: US.RETAIL, source: fred, source_id: RSAFS, frequency: M, publication_lag_days: 17, release_time_et: "08:30", description: Retail and food services sales, tags: [growth, consumer]}
+  - {id: US.HOUSING.STARTS, source: fred, source_id: HOUST, frequency: M, publication_lag_days: 20, release_time_et: "08:30", description: Housing starts, tags: [growth, housing]}
+  - {id: US.HOUSING.PERMITS, source: fred, source_id: PERMIT, frequency: M, publication_lag_days: 20, release_time_et: "08:30", description: Building permits, tags: [growth, housing]}
+  - {id: US.SENTIMENT.UMICH, source: fred, source_id: UMCSENT, frequency: M, publication_lag_days: 2, release_time_et: "10:00", description: UMich consumer sentiment, tags: [growth, sentiment]}
+
+  # ---------------------------------------------------------------- labor
+  - {id: US.LABOR.UNRATE, source: fred, source_id: UNRATE, frequency: M, publication_lag_days: 10, release_time_et: "08:30", description: Unemployment rate, tags: [labor]}
+  - {id: US.LABOR.NFP, source: fred, source_id: PAYEMS, frequency: M, publication_lag_days: 10, release_time_et: "08:30", description: Nonfarm payrolls, tags: [labor]}
+  - {id: US.LABOR.CLAIMS.INIT, source: fred, source_id: ICSA, frequency: W, publication_lag_days: 6, release_time_et: "08:30", description: Initial jobless claims (week ending Sat), tags: [labor]}
+  - {id: US.LABOR.CLAIMS.CONT, source: fred, source_id: CCSA, frequency: W, publication_lag_days: 13, release_time_et: "08:30", description: Continuing claims (week ending Sat), tags: [labor]}
+  - {id: US.LABOR.JOLTS, source: fred, source_id: JTSJOL, frequency: M, publication_lag_days: 40, release_time_et: "10:00", description: JOLTS job openings, tags: [labor]}
+  - {id: US.LABOR.SAHM, source: fred, source_id: SAHMREALTIME, frequency: M, publication_lag_days: 10, release_time_et: "23:59", description: Real-time Sahm rule recession indicator, tags: [labor, recession]}
+
+  # ---------------------------------------------------------------- inflation
+  - {id: US.CPI.HEADLINE, source: fred, source_id: CPIAUCSL, frequency: M, publication_lag_days: 16, release_time_et: "08:30", description: CPI-U all items SA, tags: [inflation]}
+  - {id: US.CPI.CORE, source: fred, source_id: CPILFESL, frequency: M, publication_lag_days: 16, release_time_et: "08:30", description: CPI-U less food and energy SA, tags: [inflation]}
+  - {id: US.PCE.CORE, source: fred, source_id: PCEPILFE, frequency: M, publication_lag_days: 32, release_time_et: "08:30", description: Core PCE price index, tags: [inflation]}
+
+  # ---------------------------------------------------------------- rates & curve
+  - {id: US.RATES.FF, source: fred, source_id: DFF, frequency: D, publication_lag_days: 1, description: Effective federal funds rate, tags: [rates, policy]}
+  - {id: US.RATES.SOFR, source: fred, source_id: SOFR, frequency: D, publication_lag_days: 1, description: Secured overnight financing rate, tags: [rates, policy]}
+  - {id: US.RATES.2Y, source: fred, source_id: DGS2, frequency: D, publication_lag_days: 1, description: 2Y Treasury constant maturity, tags: [rates]}
+  - {id: US.RATES.10Y, source: fred, source_id: DGS10, frequency: D, publication_lag_days: 1, description: 10Y Treasury constant maturity, tags: [rates]}
+  - {id: US.RATES.10Y.REAL, source: fred, source_id: DFII10, frequency: D, publication_lag_days: 1, description: 10Y TIPS yield, tags: [rates, inflation]}
+  - {id: US.RATES.BE10, source: fred, source_id: T10YIE, frequency: D, publication_lag_days: 1, description: 10Y breakeven inflation, tags: [rates, inflation]}
+  - {id: US.RATES.5Y5Y, source: fred, source_id: T5YIFR, frequency: D, publication_lag_days: 1, description: 5Y5Y forward inflation expectation, tags: [rates, inflation]}
+  - {id: US.CURVE.10Y2Y, source: fred, source_id: T10Y2Y, frequency: D, publication_lag_days: 1, description: 10Y minus 2Y Treasury spread, tags: [rates, curve]}
+  - {id: US.CURVE.10Y3M, source: fred, source_id: T10Y3M, frequency: D, publication_lag_days: 1, description: 10Y minus 3M Treasury spread, tags: [rates, curve, recession]}
+  - {id: US.MORTGAGE.30Y, source: fred, source_id: MORTGAGE30US, frequency: W, publication_lag_days: 0, release_time_et: "12:00", description: Freddie Mac 30Y fixed mortgage rate, tags: [rates, housing]}
+
+  # ---------------------------------------------------------------- credit & financial conditions
+  # ICE BofA series: FRED only distributes a trailing window of daily history (licensing).
+  - {id: US.CREDIT.HY.OAS, source: fred, source_id: BAMLH0A0HYM2, frequency: D, publication_lag_days: 1, description: ICE BofA US High Yield OAS, tags: [credit]}
+  - {id: US.CREDIT.IG.OAS, source: fred, source_id: BAMLC0A0CM, frequency: D, publication_lag_days: 1, description: ICE BofA US Corporate (IG) OAS, tags: [credit]}
+  - {id: US.FCI.NFCI, source: fred, source_id: NFCI, frequency: W, publication_lag_days: 6, release_time_et: "08:30", description: Chicago Fed National Financial Conditions Index, tags: [fci]}
+  - {id: US.FCI.STLFSI, source: fred, source_id: STLFSI4, frequency: W, publication_lag_days: 7, description: St. Louis Fed Financial Stress Index, tags: [fci]}
+  - {id: US.VOL.VIX, source: fred, source_id: VIXCLS, frequency: D, publication_lag_days: 1, description: CBOE VIX close, tags: [volatility]}
+
+  # ---------------------------------------------------------------- liquidity, money, dollar, commodities
+  - {id: US.FED.ASSETS, source: fred, source_id: WALCL, frequency: W, publication_lag_days: 1, release_time_et: "16:30", description: "Fed total assets (Wednesday level, H.4.1)", tags: [liquidity]}
+  - {id: US.FED.RRP, source: fred, source_id: RRPONTSYD, frequency: D, publication_lag_days: 1, description: Overnight reverse repo, tags: [liquidity]}
+  - {id: US.TGA, source: fred, source_id: WTREGEN, frequency: W, publication_lag_days: 1, release_time_et: "16:30", description: Treasury General Account (Wednesday level), tags: [liquidity]}
+  - {id: US.MONEY.M2, source: fred, source_id: M2SL, frequency: M, publication_lag_days: 28, release_time_et: "13:00", description: M2 money stock, tags: [liquidity]}
+  - {id: US.USD.BROAD, source: fred, source_id: DTWEXBGS, frequency: D, publication_lag_days: 7, description: Nominal broad trade-weighted USD index, tags: [fx]}
+  - {id: CMDTY.OIL.WTI, source: fred, source_id: DCOILWTICO, frequency: D, publication_lag_days: 7, description: WTI crude spot (Cushing), tags: [commodities, energy]}
