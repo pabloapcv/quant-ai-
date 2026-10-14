@@ -40,16 +40,18 @@ REPO = Path(__file__).resolve().parents[1]
 KNOWN = utc(2026, 10, 1)
 
 
-def _store(path: Path, *, n_months: int = 120, n_assets: int = 12, seed: int = 7) -> PITStore:
+def _store(
+    path: Path, *, n_months: int = 120, n_assets: int = 12, seed: int = 7, start_year: int = 2010
+) -> PITStore:
     """Synthetic Ken French-like store: industry returns, annual BE/ME, market factor."""
     rng = np.random.default_rng(seed)
     rows = []
-    months = [date(2010 + t // 12, t % 12 + 1, 1) for t in range(n_months)]
+    months = [date(start_year + t // 12, t % 12 + 1, 1) for t in range(n_months)]
     for i in range(n_assets):
         drift = rng.normal(0.8, 0.3)
         for d in months:
             rows.append((f"FF.IND12.X{i}", d, KNOWN, float(rng.normal(drift, 5))))
-        for fy in range(2008, 2010 + n_months // 12):
+        for fy in range(start_year - 2, start_year + n_months // 12):
             rows.append(
                 (f"FF.IND12BM.X{i}", date(fy, 1, 1), KNOWN, float(abs(rng.normal(0.6, 0.2)) + 0.05))
             )

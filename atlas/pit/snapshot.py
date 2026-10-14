@@ -58,6 +58,11 @@ def _git(*args: str) -> str | None:
     return out.stdout.strip()
 
 
+def git_sha() -> str | None:
+    """Current commit of the Atlas code, if it is a git checkout."""
+    return _git("rev-parse", "HEAD")
+
+
 def snapshots_dir(data_dir: Path) -> Path:
     return data_dir / "snapshots"
 

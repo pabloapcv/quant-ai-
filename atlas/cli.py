@@ -19,16 +19,19 @@ from atlas.connectors.fred import FredConnector
 from atlas.connectors.kenfrench import KenFrenchConnector
 from atlas.ingest import IngestReport, ingest_series
 from atlas.log import configure_logging
+from atlas.models.expected_returns.ensemble import EnsembleConfig
+from atlas.models.expected_returns.ensemble import walk_forward as ensemble_walk_forward
 from atlas.models.regime.engine import RegimeEngine, RegimeReport
 from atlas.models.regime.evaluate import walk_forward
 from atlas.models.regime.market import market_regimes
-from atlas.pit.snapshot import create_snapshot, load_snapshot, verify_snapshot
+from atlas.pit.snapshot import create_snapshot, git_sha, load_snapshot, verify_snapshot
 from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
 from atlas.settings import get_settings
 from atlas.signals.cards import write_cards
 from atlas.signals.industry import FAMILIES, SIGNALS, UNIVERSES, research_panel
 from atlas.signals.research import ResearchContext, family_pbo, run_gate_suite, run_signal
+from atlas.views.publish import build_views, evaluate, publish
 
 app = typer.Typer(no_args_is_help=True, help="Atlas quant research assistant.")
 ingest_app = typer.Typer(no_args_is_help=True, help="Pull data from sources into the PIT store.")
@@ -36,12 +39,14 @@ pit_app = typer.Typer(no_args_is_help=True, help="Query the point-in-time store.
 snapshot_app = typer.Typer(no_args_is_help=True, help="Create and verify reproducible snapshots.")
 catalog_app = typer.Typer(no_args_is_help=True, help="Inspect the series catalog.")
 regime_app = typer.Typer(no_args_is_help=True, help="Macro regime engine (Phase 2).")
+views_app = typer.Typer(no_args_is_help=True, help="Industry views: ensemble forecasts (Phase 4).")
 research_app = typer.Typer(no_args_is_help=True, help="Signal research & backtests (Phase 3).")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(pit_app, name="pit")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(catalog_app, name="catalog")
 app.add_typer(regime_app, name="regime")
+app.add_typer(views_app, name="views")
 app.add_typer(research_app, name="research")
 
 
@@ -419,6 +424,69 @@ def research_cards(
         suite, Path(out) / universe, generated=datetime.now(UTC).date(), cost_bps=cost_bps
     )
     typer.echo(f"wrote {len(paths)} files to {Path(out) / universe}")
+
+
+# ---------------------------------------------------------------------------- views
+HorizonOpt = Annotated[int, typer.Option(min=1, max=12, help="Forecast horizon, months")]
+
+
+@views_app.command("build")
+def views_build(
+    universe: UniverseOpt = "ind12",
+    horizon: HorizonOpt = 3,
+    as_of: Annotated[str | None, typer.Option("--as-of", help="YYYY-MM-01; default latest")] = None,
+    do_publish: Annotated[
+        bool, typer.Option("--publish", help="Freeze to data/gold/views")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Current views: stance, calibrated probability, expected excess return and its range."""
+    ctx = _context(universe, None, 10.0, 3)
+    run = ensemble_walk_forward(ctx, EnsembleConfig(horizon=horizon))
+    views = build_views(
+        run,
+        universe,
+        _parse_date(as_of) if as_of else None,
+        code_sha=git_sha(),
+        n_trials=ctx.log.stats(universe=universe).n_trials,
+    )
+    if as_json:
+        typer.echo(json.dumps([v.model_dump(mode="json") for v in views], indent=2))
+    else:
+        typer.echo(f"Views as of {views[0].as_of:%Y-%m} | horizon {views[0].horizon} | {universe}")
+        typer.echo(
+            f"{'asset':<28} {'stance':<20} {'score':>6} {'P(beat)':>8} {'E[excess]':>10} "
+            f"{'p10':>8} {'p90':>8} {'agree':>6}  conf"
+        )
+        for v in views:
+            e = v.expected_excess_return
+            p10 = "n/a" if e.p10 is None else f"{e.p10:+.1%}"
+            p90 = "n/a" if e.p90 is None else f"{e.p90:+.1%}"
+            prob = "n/a" if v.prob_outperform is None else f"{v.prob_outperform:.2f}"
+            agree = "n/a" if v.agreement is None else f"{v.agreement:.2f}"
+            typer.echo(
+                f"{v.asset_name:<28} {v.stance.value:<20} {v.score:>+6.2f} {prob:>8} "
+                f"{e.mean:>+10.2%} {p10:>8} {p90:>8} {agree:>6}  {v.confidence.value}"
+            )
+    if do_publish:
+        path = publish(views, get_settings().data_dir, universe)
+        typer.echo(f"published {path}")
+
+
+@views_app.command("evaluate")
+def views_evaluate(
+    universe: UniverseOpt = "ind12",
+    horizon: HorizonOpt = 3,
+    start: StartOpt = "1970-01-01",
+) -> None:
+    """Walk-forward track record of the view model: IC, calibration, coverage, hit rate."""
+    ctx = _context(universe, None, 10.0, 3)
+    run = ensemble_walk_forward(ctx, EnsembleConfig(horizon=horizon))
+    ev = evaluate(run, _parse_date(start) if start else None)
+    for k, v in ev.summary().items():
+        typer.echo(f"{k:<22} {_fmt(v)}")
+    typer.echo("\nreliability (predicted vs realized share beating the median):")
+    typer.echo(ev.reliability)
 
 
 def main() -> None:  # pragma: no cover
