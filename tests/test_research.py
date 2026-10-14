@@ -14,11 +14,14 @@ from atlas.backtest.gates import evaluate_gates
 from atlas.backtest.trials import TrialLog
 from atlas.models.regime.market import REGIMES, market_regimes
 from atlas.pit.store import PITStore
+from atlas.signals.cards import write_cards
 from atlas.signals.industry import (
     FAMILIES,
     SIGNALS,
     fiscal_year_known,
     research_panel,
+    residual_momentum,
+    residual_momentum_scores,
     value,
     value_momentum,
     vol_scaled_momentum,
@@ -27,6 +30,7 @@ from atlas.signals.research import (
     ResearchContext,
     ensemble_marginal_icir,
     family_pbo,
+    run_gate_suite,
     run_signal,
     signal_panel,
 )
@@ -51,6 +55,11 @@ def _store(path: Path, *, n_months: int = 120, n_assets: int = 12, seed: int = 7
             )
     for d in months:
         rows.append(("FF.FACTOR.MKTRF", d, KNOWN, float(rng.normal(0.7, 4.5))))
+        rows.append(("FF.FACTOR.SMB", d, KNOWN, float(rng.normal(0.2, 3.0))))
+        rows.append(("FF.FACTOR.HML", d, KNOWN, float(rng.normal(0.3, 3.0))))
+        rows.append(("FF.FACTOR.RF", d, KNOWN, 0.3))
+        rows.append(("FF.FACTOR.RMW", d, KNOWN, float(rng.normal(0.2, 2.0))))
+        rows.append(("FF.FACTOR.CMA", d, KNOWN, float(rng.normal(0.2, 2.0))))
     store = PITStore(path)
     store.write(make_obs_frame(rows))
     return store
@@ -203,3 +212,67 @@ def test_cli_gates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         assert "ic_by_market_regime" in res.output
     finally:
         get_settings.cache_clear()
+
+
+def test_factor_panel_and_residual_momentum(tmp_path: Path) -> None:
+    panel = research_panel(_store(tmp_path), "ind12")
+    assert {"f_mktrf", "f_smb", "f_hml", "f_rf"} <= set(panel.columns)
+    assert panel["f_rf"].drop_nulls().unique().to_list() == [0.003]  # percent -> fraction
+
+    # Same 1.5 market beta; HI gets +3%/month idiosyncratic return over the last year, LO -3%.
+    # (A constant alpha would be absorbed by the intercept: residual momentum is about
+    # *recent* idiosyncratic performance.)
+    dates = panel.select("date").unique().sort("date")
+    mkt = panel.select("date", "f_mktrf", "f_smb", "f_hml", "f_rf").unique("date").sort("date")
+    rng = np.random.default_rng(3)
+    n = dates.height
+    recent = np.zeros(n)
+    recent[n - 12 : n - 1] = 0.03
+    base = pl.col("f_rf") + 1.5 * pl.col("f_mktrf") + pl.Series(rng.normal(0, 0.002, n))
+    hi = mkt.with_columns(pl.lit("HI").alias("asset"), (base + pl.Series(recent)).alias("ret"))
+    lo = mkt.with_columns(pl.lit("LO").alias("asset"), (base - pl.Series(recent)).alias("ret"))
+    toy = pl.concat([hi, lo]).select("date", "asset", "ret", "f_mktrf", "f_smb", "f_hml", "f_rf")
+    scores = residual_momentum_scores(toy, ("f_mktrf",), window=36)
+    last = scores.drop_nulls("signal").sort("date").group_by("asset").agg(pl.col("signal").last())
+    by = dict(last.iter_rows())
+    assert by["HI"] > by["LO"]  # constant alpha gap shows up despite identical beta
+    assert (
+        scores.filter(pl.col("date") < dates["date"][35])["signal"].null_count()
+        == scores.filter(pl.col("date") < dates["date"][35]).height
+    )  # nothing before a full window
+
+    missing = residual_momentum_scores(toy.drop("f_rf"), ("f_mktrf",))
+    assert missing["signal"].null_count() == missing.height
+    sig = residual_momentum(36, "ff3")
+    assert sig.family == "residual_momentum"
+    assert "signal" in sig.compute(panel).columns
+
+
+def test_gate_suite_and_cards(tmp_path: Path) -> None:
+    store = _store(tmp_path, n_months=144)
+    ctx = ResearchContext(
+        panel=research_panel(store, "ind12"),
+        universe="ind12",
+        log=TrialLog(tmp_path),
+        regimes=market_regimes(store, min_history=24).select("date", "regime"),
+        n_quantiles=3,
+    )
+    suite = run_gate_suite(ctx, n_splits=4)
+    assert set(suite.gates) == set(SIGNALS)
+    assert set(suite.pbo) == set(FAMILIES)
+    distinct = {(s.name, str(sorted(s.params.items()))) for m in FAMILIES.values() for s in m}
+    distinct |= {(s.name, str(sorted(s.params.items()))) for s in SIGNALS.values()}
+    assert suite.n_trials == len(distinct)  # representative configs are not double-counted
+    paths = write_cards(suite, tmp_path / "cards", generated=date(2026, 10, 14), cost_bps=10)
+    assert len(paths) == len(SIGNALS) + 1
+    card = (tmp_path / "cards" / "mom_12_1.md").read_text()
+    for heading in (
+        "## Why it should work",
+        "## Promotion gates",
+        "## Every configuration tried",
+        "## Where it breaks",
+    ):
+        assert heading in card
+    assert "Do not edit by hand" in card
+    index = (tmp_path / "cards" / "README.md").read_text()
+    assert "[`mom_12_1`](mom_12_1.md)" in index

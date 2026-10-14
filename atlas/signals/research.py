@@ -16,9 +16,10 @@ import numpy as np
 import polars as pl
 
 from atlas.backtest.crosssection import SignalReport, backtest_signal, vol_target
+from atlas.backtest.gates import GateResult, evaluate_gates
 from atlas.backtest.metrics import pbo_cscv, sharpe
 from atlas.backtest.trials import TrialLog
-from atlas.signals.industry import SignalDef
+from atlas.signals.industry import FAMILIES, SIGNALS, SignalDef
 
 
 @dataclass(frozen=True)
@@ -108,3 +109,59 @@ def ensemble_marginal_icir(panels: dict[str, pl.DataFrame]) -> tuple[float, dict
 
     full = icir_of(names)
     return full, {n: full - icir_of([c for c in names if c != n]) for n in names}
+
+
+@dataclass(frozen=True)
+class GateSuite:
+    """Everything one full research pass produces for a universe."""
+
+    universe: str
+    reports: dict[str, SignalReport]  # representative signal -> report
+    family_reports: dict[str, list[SignalReport]]
+    pbo: dict[str, float]
+    pbo_months: dict[str, int]
+    ensemble_icir: float
+    gates: dict[str, GateResult]
+    n_trials: int
+
+
+def _try_run(sig: SignalDef, ctx: ResearchContext) -> SignalReport | None:
+    """``run_signal``, or None when the signal's inputs are not in the store."""
+    try:
+        return run_signal(sig, ctx)
+    except ValueError:
+        return None
+
+
+def run_gate_suite(ctx: ResearchContext, *, n_splits: int = 16) -> GateSuite:
+    """Run every family (so the trial count is complete), then gate each signal."""
+    family_reports: dict[str, list[SignalReport]] = {}
+    for f, members in FAMILIES.items():
+        reps = [r for r in (_try_run(s, ctx) for s in members) if r is not None]
+        if reps:
+            family_reports[f] = reps
+    pbo, months = {}, {}
+    for f, reps in family_reports.items():
+        if len(reps) >= 2:
+            pbo[f], months[f] = family_pbo(reps, n_splits=n_splits)
+    reports = {n: r for n, s in SIGNALS.items() if (r := _try_run(s, ctx)) is not None}
+    # Overlays share their base signal's ranking, so only distinct rankings enter the ensemble.
+    rankings = {n: s for n, s in SIGNALS.items() if s.ranking_of is None and n in reports}
+    ens, marginal = ensemble_marginal_icir({n: signal_panel(s, ctx) for n, s in rankings.items()})
+    gates = {
+        n: evaluate_gates(
+            s, reports[n], pbo=pbo.get(s.family), marginal_icir=marginal[s.ranking_of or n]
+        )
+        for n, s in SIGNALS.items()
+        if n in reports and (s.ranking_of or n) in marginal
+    }
+    return GateSuite(
+        universe=ctx.universe,
+        reports=reports,
+        family_reports=family_reports,
+        pbo=pbo,
+        pbo_months=months,
+        ensemble_icir=ens,
+        gates=gates,
+        n_trials=ctx.log.stats(universe=ctx.universe).n_trials,
+    )

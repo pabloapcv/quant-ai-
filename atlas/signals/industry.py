@@ -17,10 +17,11 @@ literature reference (the PRD's economic-rationale gate).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
+import numpy as np
 import polars as pl
 
 from atlas.pit.store import PITStore
@@ -79,9 +80,37 @@ def value_panel(panel: pl.DataFrame, store: PITStore, universe: str) -> pl.DataF
     )
 
 
+FACTOR_COLUMNS = {
+    "MKTRF": "f_mktrf",
+    "SMB": "f_smb",
+    "HML": "f_hml",
+    "RMW": "f_rmw",
+    "CMA": "f_cma",
+    "RF": "f_rf",
+}
+
+
+def factor_panel(panel: pl.DataFrame, store: PITStore) -> pl.DataFrame:
+    """Adds Fama-French factor returns (fractions) by date as ``f_<name>`` columns.
+
+    Factor returns are month-end market data like industry returns; missing factors are
+    simply absent columns (signals that need them produce nulls).
+    """
+    raw = latest_by_prefix(store, "FF.FACTOR.", None)
+    raw = raw.filter(pl.col("asset").is_in(list(FACTOR_COLUMNS)))
+    if raw.is_empty():
+        return panel
+    wide = (
+        raw.with_columns((pl.col("value") / 100.0).alias("value"))
+        .pivot(index="event_time", on="asset", values="value", aggregate_function="first")
+        .rename({k: v for k, v in FACTOR_COLUMNS.items()} | {"event_time": "date"}, strict=False)
+    )
+    return panel.join(wide, on="date", how="left")
+
+
 def research_panel(store: PITStore, universe: str) -> pl.DataFrame:
     """Returns + every characteristic the signal library needs."""
-    return value_panel(returns_panel(store, universe), store, universe)
+    return factor_panel(value_panel(returns_panel(store, universe), store, universe), store)
 
 
 def with_forward_return(panel: pl.DataFrame) -> pl.DataFrame:
@@ -236,6 +265,96 @@ def value_momentum(weight_value: float = 0.5) -> SignalDef:
     )
 
 
+FACTOR_SETS: dict[str, tuple[str, ...]] = {
+    "ff3": ("f_mktrf", "f_smb", "f_hml"),
+    "ff5": ("f_mktrf", "f_smb", "f_hml", "f_rmw", "f_cma"),
+}
+
+
+def residual_momentum_scores(
+    panel: pl.DataFrame,
+    factors: Sequence[str],
+    *,
+    window: int = 36,
+    lookback: int = 12,
+    skip: int = 1,
+    min_coverage: float = 0.8,
+) -> pl.DataFrame:
+    """Blitz-Huij-Martens residual momentum: ``date``, ``asset``, ``signal``.
+
+    For each industry and month ``t``: regress excess returns on ``factors`` over the
+    ``window`` months ending at ``t``; the score is the sum of residuals over months
+    ``t-lookback+1 .. t-skip`` divided by the residual standard deviation. Only data
+    through ``t`` is used.
+    """
+    needed = [*factors, "f_rf"]
+    if any(c not in panel.columns for c in needed):
+        return panel.select("date", "asset").with_columns(
+            pl.lit(None, dtype=pl.Float64).alias("signal")
+        )
+    dates = panel.select("date").unique().sort("date")["date"]
+    f = (
+        panel.select("date", *needed)
+        .unique("date")
+        .sort("date")
+        .join(dates.to_frame(), on="date", how="right")
+        .select(needed)
+        .to_numpy()
+    )
+    excess = (
+        panel.with_columns((pl.col("ret") - pl.col("f_rf")).alias("xr"))
+        .pivot(index="date", on="asset", values="xr", aggregate_function="first")
+        .join(dates.to_frame(), on="date", how="right")
+        .sort("date")
+    )
+    assets = [c for c in excess.columns if c != "date"]
+    y_all = excess.select(assets).to_numpy().astype(np.float64)
+    x_all = np.column_stack([np.ones(len(dates)), f[:, : len(factors)]]).astype(np.float64)
+    n_t = len(dates)
+    scores = np.full((n_t, len(assets)), np.nan)
+    for t in range(window - 1, n_t):
+        rows = slice(t - window + 1, t + 1)
+        x = x_all[rows]
+        xs_ok = np.isfinite(x).all(axis=1)
+        for j in range(len(assets)):
+            y = y_all[rows, j]
+            ok = xs_ok & np.isfinite(y)
+            if ok.sum() < min_coverage * window:
+                continue
+            beta, *_ = np.linalg.lstsq(x[ok], y[ok], rcond=None)
+            resid = np.where(ok, y - x @ beta, np.nan)
+            sd = np.nanstd(resid[ok], ddof=x.shape[1])
+            recent = resid[window - lookback : window - skip]
+            if sd > 0 and np.isfinite(recent).all():
+                scores[t, j] = recent.sum() / sd
+    return pl.DataFrame(
+        {
+            "date": np.repeat(dates.to_numpy(), len(assets)),
+            "asset": np.tile(np.array(assets, dtype=object), n_t),
+            "signal": scores.reshape(-1),
+        },
+        schema={"date": pl.Date, "asset": pl.String, "signal": pl.Float64},
+    ).with_columns(pl.col("signal").fill_nan(None))
+
+
+def residual_momentum(window: int = 36, factor_set: str = "ff3") -> SignalDef:
+    factors = FACTOR_SETS[factor_set]
+
+    def build(p: pl.DataFrame) -> pl.DataFrame:
+        scores = residual_momentum_scores(p, factors, window=window)
+        return p.join(scores, on=["date", "asset"], how="left")
+
+    return SignalDef(
+        name=f"resmom_{factor_set}_{window}",
+        family="residual_momentum",
+        build=build,
+        params={"window": window, "factors_" + factor_set: 1},
+        description=f"12-1 momentum of residual returns after {factor_set.upper()} exposure "
+        f"({window}-month rolling regression)",
+        reference="Blitz, Huij & Martens (2011), residual momentum",
+    )
+
+
 # Representative configuration of each idea (what tearsheets and gates report on).
 SIGNALS: dict[str, SignalDef] = {
     s.name: s
@@ -248,6 +367,7 @@ SIGNALS: dict[str, SignalDef] = {
         long_term_reversal(60, 12),
         value("log_bm"),
         value_momentum(0.5),
+        residual_momentum(36, "ff3"),
     )
 }
 
@@ -259,4 +379,5 @@ FAMILIES: dict[str, list[SignalDef]] = {
     "long_term_reversal": [long_term_reversal(lb, sk) for lb, sk in ((36, 12), (60, 12), (60, 0))],
     "value": [value(k) for k in ("log_bm", "bm", "bm_vs_5y")],
     "value_momentum": [value_momentum(w) for w in (0.25, 0.5, 0.75)],
+    "residual_momentum": [residual_momentum(w, fs) for w in (36, 60) for fs in ("ff3", "ff5")],
 }

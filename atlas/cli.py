@@ -12,7 +12,6 @@ from typing import Annotated
 import polars as pl
 import typer
 
-from atlas.backtest.gates import evaluate_gates
 from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.connectors.base import RawStore
@@ -27,14 +26,9 @@ from atlas.pit.snapshot import create_snapshot, load_snapshot, verify_snapshot
 from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
 from atlas.settings import get_settings
+from atlas.signals.cards import write_cards
 from atlas.signals.industry import FAMILIES, SIGNALS, UNIVERSES, research_panel
-from atlas.signals.research import (
-    ResearchContext,
-    ensemble_marginal_icir,
-    family_pbo,
-    run_signal,
-    signal_panel,
-)
+from atlas.signals.research import ResearchContext, family_pbo, run_gate_suite, run_signal
 
 app = typer.Typer(no_args_is_help=True, help="Atlas quant research assistant.")
 ingest_app = typer.Typer(no_args_is_help=True, help="Pull data from sources into the PIT store.")
@@ -379,22 +373,10 @@ def research_gates(
 ) -> None:
     """Run every family, then check each signal against the PRD promotion gates."""
     ctx = _context(universe, start, cost_bps, quantiles)
-    pbos = {
-        f: family_pbo([run_signal(s, ctx) for s in members], n_splits=splits)[0]
-        for f, members in FAMILIES.items()
-    }
-    reports = {n: run_signal(s, ctx) for n, s in SIGNALS.items()}
-    # Overlays share their base signal's ranking, so only distinct rankings enter the ensemble.
-    rankings = {n: s for n, s in SIGNALS.items() if s.ranking_of is None}
-    ens_icir, marginal = ensemble_marginal_icir(
-        {n: signal_panel(s, ctx) for n, s in rankings.items()}
-    )
-    results = []
-    for n, s in SIGNALS.items():
-        base = s.ranking_of or n
-        results.append(
-            evaluate_gates(s, reports[n], pbo=pbos.get(s.family), marginal_icir=marginal[base])
-        )
+    suite = run_gate_suite(ctx, n_splits=splits)
+    results = list(suite.gates.values())
+    reports = suite.reports
+    ens_icir = suite.ensemble_icir
 
     typer.echo(f"{'signal':<16} {'t':>6} {'DSR':>5} {'PBO':>5} {'reg':>4} {'marg':>6}  result")
     for g in results:
@@ -421,6 +403,22 @@ def research_gates(
         ]
         Path(out).write_text(json.dumps({"ensemble_icir": ens_icir, "gates": payload}, default=str))
         typer.echo(f"wrote {out}")
+
+
+@research_app.command("cards")
+def research_cards(
+    universe: UniverseOpt = "ind49",
+    cost_bps: CostOpt = 10.0,
+    quantiles: QuantOpt = 5,
+    out: Annotated[str, typer.Option(help="Directory for the Markdown cards")] = "docs/signals",
+) -> None:
+    """Regenerate one signal card per signal (PRD §14) from a full gate-suite run."""
+    ctx = _context(universe, None, cost_bps, quantiles)
+    suite = run_gate_suite(ctx)
+    paths = write_cards(
+        suite, Path(out) / universe, generated=datetime.now(UTC).date(), cost_bps=cost_bps
+    )
+    typer.echo(f"wrote {len(paths)} files to {Path(out) / universe}")
 
 
 def main() -> None:  # pragma: no cover
