@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, date, datetime
 from typing import Annotated
 
 import polars as pl
 import typer
 
+from atlas.backtest.crosssection import SignalReport, backtest_signal
+from atlas.backtest.metrics import pbo_cscv, sharpe
+from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.connectors.base import RawStore
 from atlas.connectors.fred import FredConnector
-from atlas.ingest import ingest_series
+from atlas.connectors.kenfrench import KenFrenchConnector
+from atlas.ingest import IngestReport, ingest_series
 from atlas.log import configure_logging
 from atlas.models.regime.engine import RegimeEngine, RegimeReport
 from atlas.models.regime.evaluate import walk_forward
@@ -20,6 +25,7 @@ from atlas.pit.snapshot import create_snapshot, load_snapshot, verify_snapshot
 from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
 from atlas.settings import get_settings
+from atlas.signals.industry import FAMILIES, SIGNALS, UNIVERSES, SignalDef, returns_panel
 
 app = typer.Typer(no_args_is_help=True, help="Atlas quant research assistant.")
 ingest_app = typer.Typer(no_args_is_help=True, help="Pull data from sources into the PIT store.")
@@ -27,11 +33,13 @@ pit_app = typer.Typer(no_args_is_help=True, help="Query the point-in-time store.
 snapshot_app = typer.Typer(no_args_is_help=True, help="Create and verify reproducible snapshots.")
 catalog_app = typer.Typer(no_args_is_help=True, help="Inspect the series catalog.")
 regime_app = typer.Typer(no_args_is_help=True, help="Macro regime engine (Phase 2).")
+research_app = typer.Typer(no_args_is_help=True, help="Signal research & backtests (Phase 3).")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(pit_app, name="pit")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(catalog_app, name="catalog")
 app.add_typer(regime_app, name="regime")
+app.add_typer(research_app, name="research")
 
 
 @app.callback()
@@ -102,17 +110,48 @@ def ingest_fred(
             reports = await ingest_series(
                 specs, fred, _store(), vintages=vintages, concurrency=concurrency
             )
-        for r in reports:
-            status = "ok " if r.ok else "ERR"
-            detail = (
-                r.error
-                or f"fetched={r.rows_fetched} new={r.rows_new} restated={r.rows_conflicting}"
-            )
-            typer.echo(f"[{status}] {r.series_id:<24} {detail}")
-        return sum(not r.ok for r in reports)
+        return _echo_reports(reports)
 
     failures = asyncio.run(run())
     raise typer.Exit(code=1 if failures else 0)
+
+
+def _echo_reports(reports: list[IngestReport]) -> int:
+    for r in reports:
+        status = "ok " if r.ok else "ERR"
+        detail = r.error or (
+            f"fetched={r.rows_fetched} new={r.rows_new} restated={r.rows_conflicting}"
+        )
+        typer.echo(f"[{status}] {r.series_id:<24} {detail}")
+    return sum(not r.ok for r in reports)
+
+
+@ingest_app.command("kenfrench")
+def ingest_kenfrench(
+    series: Annotated[
+        list[str] | None, typer.Argument(help="Catalog ids, e.g. FF.IND12.HLTH")
+    ] = None,
+    all_series: Annotated[bool, typer.Option("--all", help="Every kenfrench series")] = False,
+) -> None:
+    """Ingest Fama-French factors and industry portfolios (no API key needed)."""
+    settings = get_settings()
+    cat = _catalog()
+    if all_series:
+        specs = cat.by_source("kenfrench")
+    elif series:
+        specs = [cat.get(s) for s in series]
+    else:
+        raise typer.BadParameter("pass series ids or --all")
+
+    async def run() -> int:
+        async with KenFrenchConnector(
+            raw_store=RawStore(settings.data_dir), timeout_s=settings.http_timeout_s
+        ) as kf:
+            # one connector instance downloads each zip once; serialize to share the cache
+            reports = await ingest_series(specs, kf, _store(), concurrency=1)
+        return _echo_reports(reports)
+
+    raise typer.Exit(code=1 if asyncio.run(run()) else 0)
 
 
 # ---------------------------------------------------------------------------- pit
@@ -225,6 +264,99 @@ def regime_backtest(
     if out:
         bt.monthly.write_csv(out)
         typer.echo(f"wrote {out}")
+
+
+# ---------------------------------------------------------------------------- research
+def _fmt(v: object) -> str:
+    return f"{v:.4f}" if isinstance(v, float) else str(v)
+
+
+def _run_signal(
+    sig: SignalDef, universe: str, start: str | None, cost_bps: float, quantiles: int, log: TrialLog
+) -> SignalReport:
+    panel = sig.compute(returns_panel(_store(), universe))
+    if start:
+        panel = panel.filter(pl.col("date") >= _parse_date(start))
+    rep = backtest_signal(panel, sig.name, n_quantiles=quantiles, cost_bps=cost_bps)
+    log.record(
+        family=sig.family,
+        name=sig.name,
+        universe=universe,
+        params=sig.params,
+        sharpe_per_period=sharpe(rep.long_short["net"].to_numpy()),
+        n_periods=rep.long_short.height,
+    )
+    stats = log.stats(universe=universe)
+    return backtest_signal(
+        panel,
+        sig.name,
+        n_quantiles=quantiles,
+        cost_bps=cost_bps,
+        n_trials=stats.n_trials,
+        trial_sr_variance=stats.sr_variance,
+    )
+
+
+@research_app.command("list")
+def research_list() -> None:
+    """Available signals, families and universes."""
+    for s in SIGNALS.values():
+        typer.echo(f"{s.name:<16} {s.family:<20} {s.description}")
+    typer.echo(f"\nfamilies: {', '.join(FAMILIES)}   universes: {', '.join(UNIVERSES)}")
+
+
+@research_app.command("signal")
+def research_signal(
+    name: str,
+    universe: Annotated[str, typer.Option(help="ind12 | ind49")] = "ind49",
+    start: Annotated[str | None, typer.Option(help="YYYY-MM-DD")] = None,
+    cost_bps: Annotated[float, typer.Option(help="Cost per unit one-way turnover, bps")] = 10.0,
+    quantiles: Annotated[int, typer.Option(min=2, max=10)] = 5,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Tearsheet for one signal: IC, decay, quantile spread, net Sharpe, PSR/DSR."""
+    if name not in SIGNALS:
+        raise typer.BadParameter(f"unknown signal {name!r}; see `atlas research list`")
+    log = TrialLog(get_settings().data_dir)
+    rep = _run_signal(SIGNALS[name], universe, start, cost_bps, quantiles, log)
+    summary = rep.summary()
+    if as_json:
+        extra = {"ic_decay": rep.ic_decay, "quantile_mean_annual": rep.quantile_mean_annual}
+        typer.echo(json.dumps({**summary, **extra}, default=str))
+        return
+    for k, v in summary.items():
+        typer.echo(f"{k:<22} {_fmt(v)}")
+    decay = "  ".join(f"{k}m:{v:+.3f}" for k, v in rep.ic_decay.items())
+    quint = "  ".join(f"Q{k}:{v:+.2%}" for k, v in rep.quantile_mean_annual.items())
+    typer.echo(f"{'ic_decay':<22} {decay}")
+    typer.echo(f"{'quantile_ann_return':<22} {quint}")
+
+
+@research_app.command("family")
+def research_family(
+    family: str,
+    universe: Annotated[str, typer.Option(help="ind12 | ind49")] = "ind49",
+    start: Annotated[str | None, typer.Option(help="YYYY-MM-DD")] = None,
+    cost_bps: Annotated[float, typer.Option()] = 10.0,
+    quantiles: Annotated[int, typer.Option(min=2, max=10)] = 5,
+    splits: Annotated[int, typer.Option(help="CSCV blocks (even)")] = 16,
+) -> None:
+    """Backtest every configuration in a family, then estimate PBO across them."""
+    if family not in FAMILIES:
+        raise typer.BadParameter(f"unknown family {family!r}: {', '.join(FAMILIES)}")
+    log = TrialLog(get_settings().data_dir)
+    reports = [_run_signal(s, universe, start, cost_bps, quantiles, log) for s in FAMILIES[family]]
+    net = reports[0].long_short.select("date", pl.col("net").alias(reports[0].name))
+    for rep in reports[1:]:
+        net = net.join(rep.long_short.select("date", pl.col("net").alias(rep.name)), on="date")
+    pbo = pbo_cscv(net.drop("date").to_numpy(), n_splits=splits)
+    typer.echo(f"{'config':<14} {'IC':>7} {'t(NW)':>7} {'Sharpe':>7} {'DSR':>6}")
+    for rep in sorted(reports, key=lambda r: -r.sharpe_net):
+        typer.echo(
+            f"{rep.name:<14} {rep.ic_mean:>7.3f} {rep.ic_tstat:>7.2f} "
+            f"{rep.sharpe_net:>7.2f} {rep.dsr:>6.2f}"
+        )
+    typer.echo(f"\nPBO (CSCV, {splits} blocks, {net.height} common months): {pbo:.2f}")
 
 
 def main() -> None:  # pragma: no cover

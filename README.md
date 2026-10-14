@@ -1,6 +1,6 @@
 # Atlas — global quant AI research assistant
 
-Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations) + **Phase 2** (macro regime engine).
+Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (macro regime engine), **Phase 3** in progress (signals + backtester). Phase 1 waits on a paid market-data vendor.
 
 ## What exists today
 - `atlas/pit/` — append-only bitemporal Parquet store. Every read is point-in-time
@@ -14,6 +14,11 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations) + **Phase 2** 
 - `atlas/models/regime/` — growth / inflation / financial-conditions composites,
   growth×inflation quadrant with probabilities, Gaussian HMM (BIC-selected states),
   12-month recession probit with NBER label lag, and a walk-forward evaluator.
+- `atlas/connectors/kenfrench.py` — Ken French data library (FF5 + momentum factors,
+  12 and 49 industry portfolios back to 1926), no key needed.
+- `atlas/backtest/` — purged K-fold and combinatorial purged CV, IC / Newey-West t,
+  quantile long-short backtests with costs, PSR, deflated Sharpe, PBO (CSCV), trial log.
+- `atlas/signals/industry.py` — momentum, reversal, low-volatility, long-term reversal.
 - `tests/test_leakage.py` — the look-ahead leakage suite (blocking in CI).
 
 ## Quickstart
@@ -28,6 +33,9 @@ uv run atlas ingest fred --all          # whole catalog with ALFRED vintages
 uv run atlas regime now
 uv run atlas regime now --at 2008-09-30   # point-in-time: only what was known then
 uv run atlas regime backtest --start 1995-01-01 --out regime_bt.csv
+uv run atlas ingest kenfrench --all     # free, no key
+uv run atlas research signal mom_12_1 --universe ind49
+uv run atlas research family momentum --universe ind49   # PBO across configs
 uv run atlas snapshot create
 ```
 

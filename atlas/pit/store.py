@@ -87,16 +87,17 @@ class PITStore:
         return results
 
     def _write_series(self, series_id: str, incoming: pl.DataFrame) -> WriteResult:
-        existing = (
-            self.scan([series_id])
-            .select(*KEY, pl.col("value").alias("_existing_value"), pl.lit(True).alias("_hit"))
-            .collect()
+        history = self.scan([series_id]).select(*KEY, "value", "is_approx_vintage").collect()
+        existing = history.select(
+            *KEY, pl.col("value").alias("_existing_value"), pl.lit(True).alias("_hit")
         )
         joined = incoming.join(existing, on=list(KEY), how="left")
         is_new = pl.col("_hit").is_null()
         is_conflict = pl.col("_hit") & pl.col("_existing_value").ne_missing(pl.col("value"))
-        to_write = joined.filter(is_new | is_conflict)
-        n_conflict = to_write.filter(pl.col("_hit").is_not_null()).height
+        conflicts = joined.filter(is_conflict)
+        fresh = _drop_redundant(joined.filter(is_new), history)
+        to_write = pl.concat([fresh, conflicts])
+        n_conflict = conflicts.height
 
         part = None
         if to_write.height:
@@ -215,6 +216,35 @@ class PITStore:
     def last_knowledge_times(self) -> dict[str, datetime | None]:
         df = self.scan().group_by("series_id").agg(pl.col("knowledge_time").max()).collect()
         return dict(zip(df["series_id"].to_list(), df["knowledge_time"].to_list(), strict=True))
+
+
+def _drop_redundant(new_rows: pl.DataFrame, history: pl.DataFrame) -> pl.DataFrame:
+    """Drop new vintages that only repeat the previous vintage of the same period.
+
+    Snapshot-only sources (re-published daily, rarely revised) would otherwise add a full
+    copy of the dataset on every ingest. A real (non-approx) vintage is never considered
+    redundant after an approx one: it upgrades the period to a known release.
+    """
+    if new_rows.is_empty():
+        return new_rows
+    marked = new_rows.with_row_index("_row")
+    timeline = pl.concat(
+        [
+            history.with_columns(pl.lit(None, dtype=pl.UInt32).alias("_row")),
+            marked.select(*KEY, "value", "is_approx_vintage", "_row"),
+        ]
+    ).sort([*KEY, "_row"], nulls_last=False)
+    over = _EVENT_KEY
+    prev_value = pl.col("value").shift(1).over(over)
+    prev_approx = pl.col("is_approx_vintage").shift(1).over(over)
+    has_prev = pl.int_range(pl.len()).over(over) > 0
+    redundant = (
+        has_prev
+        & pl.col("value").eq_missing(prev_value)
+        & (pl.col("is_approx_vintage") | ~prev_approx)
+    )
+    keep = timeline.filter(pl.col("_row").is_not_null() & ~redundant)["_row"]
+    return marked.filter(pl.col("_row").is_in(keep.implode())).drop("_row")
 
 
 def _latest_vintage(lf: pl.LazyFrame, by: list[str]) -> pl.LazyFrame:

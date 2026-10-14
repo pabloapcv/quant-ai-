@@ -34,8 +34,9 @@ import structlog
 
 from atlas.catalog import SeriesSpec
 from atlas.connectors.base import ConnectorError, HttpClient, RawStore, RetryPolicy
+from atlas.pit.backfill import approx_first_releases
 from atlas.pit.clock import NEW_YORK, et_wall_time_to_utc
-from atlas.pit.schema import conform, period_end
+from atlas.pit.schema import conform
 
 log = structlog.get_logger(__name__)
 
@@ -47,8 +48,6 @@ VINTAGE_DATES_PAGE_LIMIT = 10_000
 RELEASE_DATES_PAGE_LIMIT = 1_000
 # FRED rejects observation requests spanning too many vintages; chunk well below the cap.
 VINTAGES_PER_CHUNK = 1_500
-# How late the first archived vintage must be (beyond the expected release) to synthesize one.
-APPROX_GRACE = timedelta(days=30)
 
 _RAW_COLUMNS = {
     "realtime_start": pl.String,
@@ -296,7 +295,8 @@ class FredConnector:
         df = _collapse_unchanged(df).with_columns(pl.lit(False).alias("is_approx_vintage"))
 
         if backfill_pre_vintage and df.height:
-            df = pl.concat([df, _approx_first_releases(df, spec)])
+            approx = approx_first_releases(df, spec.frequency, spec.publication_lag_days)
+            df = pl.concat([df, approx])
 
         now = datetime.now(UTC)
         out = df.with_columns(
@@ -329,27 +329,6 @@ def _collapse_unchanged(df: pl.DataFrame) -> pl.DataFrame:
     first_in_period = pl.int_range(pl.len()).over("event_time") == 0
     changed = pl.col("value").ne_missing(pl.col("value").shift(1).over("event_time"))
     return df.filter(first_in_period | changed)
-
-
-def _approx_first_releases(df: pl.DataFrame, spec: SeriesSpec) -> pl.DataFrame:
-    expected_release = period_end(pl.col("event_time"), spec.frequency) + pl.duration(
-        days=spec.publication_lag_days
-    )
-    first = (
-        df.sort("vintage_date")
-        .group_by("event_time")
-        .agg(pl.col("vintage_date").first(), pl.col("value").first())
-        .with_columns(expected_release.alias("expected_release"))
-    )
-    return first.filter(
-        pl.col("value").is_not_null()
-        & (pl.col("vintage_date") > pl.col("expected_release") + APPROX_GRACE)
-    ).select(
-        "event_time",
-        pl.col("expected_release").alias("vintage_date"),
-        "value",
-        pl.lit(True).alias("is_approx_vintage"),
-    )
 
 
 __all__ = ["FredConnector", "FredError", "FredSeriesInfo", "Release"]

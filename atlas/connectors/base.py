@@ -62,12 +62,13 @@ class HttpClient:
         retry: RetryPolicy | None = None,
         secrets: Sequence[str] = (),
         user_agent: str = "atlas-quant/0.1",
+        accept: str = "application/json",
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._client = httpx.AsyncClient(
             base_url=base_url,
             timeout=timeout_s,
-            headers={"User-Agent": user_agent, "Accept": "application/json"},
+            headers={"User-Agent": user_agent, "Accept": accept},
             transport=transport,
         )
         self._limiter = AsyncLimiter(max_calls, period_s)
