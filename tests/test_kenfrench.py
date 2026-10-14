@@ -185,3 +185,39 @@ def test_approx_first_releases() -> None:
     assert out["vintage_date"].to_list() == [date(2020, 2, 10)]
     assert out["is_approx_vintage"].all()
     _ = time
+
+
+BM_CSV = """Header\r
+\r
+  Sum of BE / Sum of ME\r
+,NoDur,Durbl\r
+  2024,   0.50,  -99.99\r
+  2025,   0.40,   0.80\r
+\r
+"""
+
+
+async def test_annual_section_with_year_offset() -> None:
+    df = parse_section(BM_CSV, "Sum of BE / Sum of ME", annual=True)
+    assert df["event_time"].to_list() == [date(2024, 1, 1), date(2025, 1, 1)]
+    assert KFSource.parse("d|s|c|-1").year_offset == -1
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=zipped("bm.csv", BM_CSV))
+
+    s = SeriesSpec(
+        id="FF.IND12BM.NODUR",
+        source="kenfrench",
+        source_id="12_Industry_Portfolios|Sum of BE / Sum of ME|NoDur|-1",
+        frequency=Frequency.ANNUAL,
+        publication_lag_days=182,
+        description="bm",
+    )
+    async with KenFrenchConnector(transport=httpx.MockTransport(handler), fetched_at=FETCHED) as kf:
+        out = await kf.fetch(s)
+    real = out.filter(~pl.col("is_approx_vintage"))
+    assert real["event_time"].to_list() == [date(2023, 1, 1), date(2024, 1, 1)]  # fiscal years
+    assert real["unit"].unique().to_list() == ["ratio"]
+    approx = out.filter(pl.col("is_approx_vintage")).sort("event_time")
+    # FY2023 period end Dec 31 2023 + 182 days = Jun 30 2024 (formation month)
+    assert approx["knowledge_time"][0].date() in (date(2024, 6, 30), date(2024, 7, 1))

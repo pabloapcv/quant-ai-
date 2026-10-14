@@ -18,7 +18,10 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   12 and 49 industry portfolios back to 1926), no key needed.
 - `atlas/backtest/` — purged K-fold and combinatorial purged CV, IC / Newey-West t,
   quantile long-short backtests with costs, PSR, deflated Sharpe, PBO (CSCV), trial log.
-- `atlas/signals/industry.py` — momentum, reversal, low-volatility, long-term reversal.
+- `atlas/signals/industry.py` — momentum (incl. vol-targeted), reversal, low-volatility,
+  long-term reversal, industry value (BE/ME, Fama-French June timing), value+momentum.
+- `atlas/backtest/gates.py` — PRD §8.4 promotion gates; `atlas/models/regime/market.py`
+  gives the trend x volatility market regimes the regime gate uses.
 - `tests/test_leakage.py` — the look-ahead leakage suite (blocking in CI).
 
 ## Quickstart
@@ -36,6 +39,7 @@ uv run atlas regime backtest --start 1995-01-01 --out regime_bt.csv
 uv run atlas ingest kenfrench --all     # free, no key
 uv run atlas research signal mom_12_1 --universe ind49
 uv run atlas research family momentum --universe ind49   # PBO across configs
+uv run atlas research gates --universe ind49             # PRD promotion gates
 uv run atlas snapshot create
 ```
 

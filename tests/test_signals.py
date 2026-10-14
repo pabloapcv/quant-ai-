@@ -47,7 +47,7 @@ def test_momentum_skip_and_window() -> None:
 def test_other_signals() -> None:
     p = _toy_panel()
     rev = reversal().compute(p).filter(pl.col("asset") == "A")["signal"].to_list()
-    assert rev[3] == pytest.approx(0.10)
+    assert rev[3] == pytest.approx(-math.log1p(-0.10))  # reversal uses log returns
     lv = low_volatility(12).compute(p)["signal"]
     assert lv.null_count() == p.height  # needs >= 12 months
     ltr = long_term_reversal(3, 1).compute(p).filter(pl.col("asset") == "A")["signal"].to_list()

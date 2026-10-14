@@ -29,7 +29,7 @@ from atlas.catalog import SeriesSpec
 from atlas.connectors.base import ConnectorError, HttpClient, RawStore, RetryPolicy
 from atlas.pit.backfill import approx_first_releases
 from atlas.pit.clock import NEW_YORK, et_wall_time_to_utc
-from atlas.pit.schema import UTC_DATETIME, conform
+from atlas.pit.schema import UTC_DATETIME, Frequency, conform
 
 KF_BASE_URL = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
 MISSING = {-99.99, -999.0}
@@ -44,20 +44,26 @@ class KFSource:
     dataset: str
     section: str  # "" = first table in the file
     column: str
+    # Shift applied to annual rows' year. Fama-French BE/ME row t is formed in June t from
+    # fiscal year t-1 accounting data, so it describes year t-1 (offset -1).
+    year_offset: int = 0
 
     @classmethod
     def parse(cls, source_id: str) -> KFSource:
-        try:
-            dataset, section, column = source_id.split("|")
-        except ValueError:
+        parts = source_id.split("|")
+        if len(parts) not in (3, 4):
             raise ValueError(
-                f"bad kenfrench source_id {source_id!r}: want 'dataset|section|column'"
-            ) from None
-        return cls(dataset, section, column)
+                f"bad kenfrench source_id {source_id!r}: want 'dataset|section|column[|offset]'"
+            )
+        offset = int(parts[3]) if len(parts) == 4 else 0
+        return cls(parts[0], parts[1], parts[2], offset)
 
 
-def parse_section(text: str, section: str = "") -> pl.DataFrame:
-    """Parse one monthly table: ``event_time`` (Date) + one Float64 column per header field."""
+def parse_section(text: str, section: str = "", *, annual: bool = False) -> pl.DataFrame:
+    """Parse one table: ``event_time`` (Date) + one Float64 column per header field.
+
+    Monthly tables have ``YYYYMM`` rows; ``annual=True`` reads ``YYYY`` rows (dated Jan 1).
+    """
     lines = [ln.rstrip() for ln in text.splitlines()]
     if section:
         try:
@@ -76,13 +82,15 @@ def parse_section(text: str, section: str = "") -> pl.DataFrame:
         fields = [f.strip() for f in ln.split(",")]
         if not fields[0].isdigit():
             break  # blank line or next section
-        if len(fields[0]) != 6:
-            continue  # annual rows (YYYY) live in other sections
-        dates.append(date(int(fields[0][:4]), int(fields[0][4:]), 1))
+        if len(fields[0]) != (4 if annual else 6):
+            continue  # the other frequency's rows
+        month = 1 if annual else int(fields[0][4:])
+        dates.append(date(int(fields[0][:4]), month, 1))
         values = [float(f) for f in fields[1 : len(header) + 1]]
         rows.append([None if v in MISSING else v for v in values])
     if not rows:
-        raise KenFrenchError(f"section {section or '<first>'!r} has no monthly rows")
+        kind = "annual" if annual else "monthly"
+        raise KenFrenchError(f"section {section or '<first>'!r} has no {kind} rows")
     data: dict[str, list[date] | list[float | None]] = {"event_time": dates}
     for j, name in enumerate(header):
         data[name] = [r[j] for r in rows]
@@ -165,7 +173,10 @@ class KenFrenchConnector:
         if spec.source != self.source:
             raise ValueError(f"{spec.id} is a {spec.source!r} series, not kenfrench")
         src = KFSource.parse(spec.source_id)
-        table = parse_section(await self._csv(src.dataset), src.section)
+        annual = spec.frequency == Frequency.ANNUAL
+        table = parse_section(await self._csv(src.dataset), src.section, annual=annual)
+        if src.year_offset:
+            table = table.with_columns(pl.col("event_time").dt.offset_by(f"{src.year_offset}y"))
         if src.column not in table.columns:
             raise KenFrenchError(f"column {src.column!r} not in {src.dataset} ({table.columns})")
 
@@ -190,7 +201,7 @@ class KenFrenchConnector:
             .then(et_wall_time_to_utc(pl.col("vintage_date"), spec.release_time_et))
             .otherwise(pl.lit(fetched, dtype=UTC_DATETIME))
             .alias("knowledge_time"),
-            pl.lit("percent_return").alias("unit"),
+            pl.lit("ratio" if annual else "percent_return").alias("unit"),
             pl.lit(spec.frequency.value).alias("frequency"),
             pl.when(pl.col("is_approx_vintage"))
             .then(pl.lit("approx:") + pl.col("vintage_date").cast(pl.String))

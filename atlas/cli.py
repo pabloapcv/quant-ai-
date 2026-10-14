@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import asdict
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Annotated
 
 import polars as pl
 import typer
 
-from atlas.backtest.crosssection import SignalReport, backtest_signal
-from atlas.backtest.metrics import pbo_cscv, sharpe
+from atlas.backtest.gates import evaluate_gates
 from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.connectors.base import RawStore
@@ -21,11 +22,19 @@ from atlas.ingest import IngestReport, ingest_series
 from atlas.log import configure_logging
 from atlas.models.regime.engine import RegimeEngine, RegimeReport
 from atlas.models.regime.evaluate import walk_forward
+from atlas.models.regime.market import market_regimes
 from atlas.pit.snapshot import create_snapshot, load_snapshot, verify_snapshot
 from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
 from atlas.settings import get_settings
-from atlas.signals.industry import FAMILIES, SIGNALS, UNIVERSES, SignalDef, returns_panel
+from atlas.signals.industry import FAMILIES, SIGNALS, UNIVERSES, research_panel
+from atlas.signals.research import (
+    ResearchContext,
+    ensemble_marginal_icir,
+    family_pbo,
+    run_signal,
+    signal_panel,
+)
 
 app = typer.Typer(no_args_is_help=True, help="Atlas quant research assistant.")
 ingest_app = typer.Typer(no_args_is_help=True, help="Pull data from sources into the PIT store.")
@@ -271,30 +280,27 @@ def _fmt(v: object) -> str:
     return f"{v:.4f}" if isinstance(v, float) else str(v)
 
 
-def _run_signal(
-    sig: SignalDef, universe: str, start: str | None, cost_bps: float, quantiles: int, log: TrialLog
-) -> SignalReport:
-    panel = sig.compute(returns_panel(_store(), universe))
-    if start:
-        panel = panel.filter(pl.col("date") >= _parse_date(start))
-    rep = backtest_signal(panel, sig.name, n_quantiles=quantiles, cost_bps=cost_bps)
-    log.record(
-        family=sig.family,
-        name=sig.name,
+def _context(universe: str, start: str | None, cost_bps: float, quantiles: int) -> ResearchContext:
+    store = _store()
+    try:
+        regimes: pl.DataFrame | None = market_regimes(store).select("date", "regime")
+    except ValueError:
+        regimes = None  # market factor not ingested: regime-conditional IC is skipped
+    return ResearchContext(
+        panel=research_panel(store, universe),
         universe=universe,
-        params=sig.params,
-        sharpe_per_period=sharpe(rep.long_short["net"].to_numpy()),
-        n_periods=rep.long_short.height,
-    )
-    stats = log.stats(universe=universe)
-    return backtest_signal(
-        panel,
-        sig.name,
+        log=TrialLog(get_settings().data_dir),
+        regimes=regimes,
         n_quantiles=quantiles,
         cost_bps=cost_bps,
-        n_trials=stats.n_trials,
-        trial_sr_variance=stats.sr_variance,
+        start=_parse_date(start) if start else None,
     )
+
+
+UniverseOpt = Annotated[str, typer.Option(help="ind12 | ind49")]
+StartOpt = Annotated[str | None, typer.Option(help="YYYY-MM-DD")]
+CostOpt = Annotated[float, typer.Option(help="Cost per unit one-way turnover, bps")]
+QuantOpt = Annotated[int, typer.Option(min=2, max=10)]
 
 
 @research_app.command("list")
@@ -302,61 +308,119 @@ def research_list() -> None:
     """Available signals, families and universes."""
     for s in SIGNALS.values():
         typer.echo(f"{s.name:<16} {s.family:<20} {s.description}")
+        typer.echo(f"{'':<16} {'':<20} ref: {s.reference}")
     typer.echo(f"\nfamilies: {', '.join(FAMILIES)}   universes: {', '.join(UNIVERSES)}")
 
 
 @research_app.command("signal")
 def research_signal(
     name: str,
-    universe: Annotated[str, typer.Option(help="ind12 | ind49")] = "ind49",
-    start: Annotated[str | None, typer.Option(help="YYYY-MM-DD")] = None,
-    cost_bps: Annotated[float, typer.Option(help="Cost per unit one-way turnover, bps")] = 10.0,
-    quantiles: Annotated[int, typer.Option(min=2, max=10)] = 5,
+    universe: UniverseOpt = "ind49",
+    start: StartOpt = None,
+    cost_bps: CostOpt = 10.0,
+    quantiles: QuantOpt = 5,
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Tearsheet for one signal: IC, decay, quantile spread, net Sharpe, PSR/DSR."""
+    """Tearsheet for one signal: IC, decay, quantile spread, net Sharpe, PSR/DSR, regimes."""
     if name not in SIGNALS:
         raise typer.BadParameter(f"unknown signal {name!r}; see `atlas research list`")
-    log = TrialLog(get_settings().data_dir)
-    rep = _run_signal(SIGNALS[name], universe, start, cost_bps, quantiles, log)
+    rep = run_signal(SIGNALS[name], _context(universe, start, cost_bps, quantiles))
     summary = rep.summary()
     if as_json:
-        extra = {"ic_decay": rep.ic_decay, "quantile_mean_annual": rep.quantile_mean_annual}
+        extra = {
+            "ic_decay": rep.ic_decay,
+            "quantile_mean_annual": rep.quantile_mean_annual,
+            "regime_ic": rep.regime_ic,
+        }
         typer.echo(json.dumps({**summary, **extra}, default=str))
         return
     for k, v in summary.items():
         typer.echo(f"{k:<22} {_fmt(v)}")
     decay = "  ".join(f"{k}m:{v:+.3f}" for k, v in rep.ic_decay.items())
     quint = "  ".join(f"Q{k}:{v:+.2%}" for k, v in rep.quantile_mean_annual.items())
+    regimes = "  ".join(f"{k}:{v:+.3f}" for k, v in sorted(rep.regime_ic.items()))
     typer.echo(f"{'ic_decay':<22} {decay}")
     typer.echo(f"{'quantile_ann_return':<22} {quint}")
+    typer.echo(f"{'ic_by_market_regime':<22} {regimes or 'n/a'}")
 
 
 @research_app.command("family")
 def research_family(
     family: str,
-    universe: Annotated[str, typer.Option(help="ind12 | ind49")] = "ind49",
-    start: Annotated[str | None, typer.Option(help="YYYY-MM-DD")] = None,
-    cost_bps: Annotated[float, typer.Option()] = 10.0,
-    quantiles: Annotated[int, typer.Option(min=2, max=10)] = 5,
+    universe: UniverseOpt = "ind49",
+    start: StartOpt = None,
+    cost_bps: CostOpt = 10.0,
+    quantiles: QuantOpt = 5,
     splits: Annotated[int, typer.Option(help="CSCV blocks (even)")] = 16,
 ) -> None:
     """Backtest every configuration in a family, then estimate PBO across them."""
     if family not in FAMILIES:
         raise typer.BadParameter(f"unknown family {family!r}: {', '.join(FAMILIES)}")
-    log = TrialLog(get_settings().data_dir)
-    reports = [_run_signal(s, universe, start, cost_bps, quantiles, log) for s in FAMILIES[family]]
-    net = reports[0].long_short.select("date", pl.col("net").alias(reports[0].name))
-    for rep in reports[1:]:
-        net = net.join(rep.long_short.select("date", pl.col("net").alias(rep.name)), on="date")
-    pbo = pbo_cscv(net.drop("date").to_numpy(), n_splits=splits)
-    typer.echo(f"{'config':<14} {'IC':>7} {'t(NW)':>7} {'Sharpe':>7} {'DSR':>6}")
+    ctx = _context(universe, start, cost_bps, quantiles)
+    reports = [run_signal(s, ctx) for s in FAMILIES[family]]
+    pbo, months = family_pbo(reports, n_splits=splits)
+    typer.echo(f"{'config':<16} {'IC':>7} {'t(NW)':>7} {'Sharpe':>7} {'DSR':>6}")
     for rep in sorted(reports, key=lambda r: -r.sharpe_net):
         typer.echo(
-            f"{rep.name:<14} {rep.ic_mean:>7.3f} {rep.ic_tstat:>7.2f} "
+            f"{rep.name:<16} {rep.ic_mean:>7.3f} {rep.ic_tstat:>7.2f} "
             f"{rep.sharpe_net:>7.2f} {rep.dsr:>6.2f}"
         )
-    typer.echo(f"\nPBO (CSCV, {splits} blocks, {net.height} common months): {pbo:.2f}")
+    typer.echo(f"\nPBO (CSCV, {splits} blocks, {months} common months): {pbo:.2f}")
+
+
+@research_app.command("gates")
+def research_gates(
+    universe: UniverseOpt = "ind49",
+    start: StartOpt = None,
+    cost_bps: CostOpt = 10.0,
+    quantiles: QuantOpt = 5,
+    splits: Annotated[int, typer.Option(help="CSCV blocks (even)")] = 16,
+    out: Annotated[str | None, typer.Option(help="Write full results as JSON")] = None,
+) -> None:
+    """Run every family, then check each signal against the PRD promotion gates."""
+    ctx = _context(universe, start, cost_bps, quantiles)
+    pbos = {
+        f: family_pbo([run_signal(s, ctx) for s in members], n_splits=splits)[0]
+        for f, members in FAMILIES.items()
+    }
+    reports = {n: run_signal(s, ctx) for n, s in SIGNALS.items()}
+    # Overlays share their base signal's ranking, so only distinct rankings enter the ensemble.
+    rankings = {n: s for n, s in SIGNALS.items() if s.ranking_of is None}
+    ens_icir, marginal = ensemble_marginal_icir(
+        {n: signal_panel(s, ctx) for n, s in rankings.items()}
+    )
+    results = []
+    for n, s in SIGNALS.items():
+        base = s.ranking_of or n
+        results.append(
+            evaluate_gates(s, reports[n], pbo=pbos.get(s.family), marginal_icir=marginal[base])
+        )
+
+    typer.echo(f"{'signal':<16} {'t':>6} {'DSR':>5} {'PBO':>5} {'reg':>4} {'marg':>6}  result")
+    for g in results:
+        pbo_s = "n/a" if g.pbo is None else f"{g.pbo:.2f}"
+        marg_s = "n/a" if g.marginal_icir is None else f"{g.marginal_icir:+.2f}"
+        verdict = "PASS" if g.passed else "fail: " + ", ".join(g.failed)
+        typer.echo(
+            f"{g.signal:<16} {g.ic_tstat:>6.2f} {g.dsr:>5.2f} {pbo_s:>5} "
+            f"{g.regimes_positive}/{g.regimes_total:<2} {marg_s:>6}  {verdict}"
+        )
+    typer.echo(
+        f"\nensemble ICIR {ens_icir:.2f}; trials logged on {universe}: "
+        f"{ctx.log.stats(universe=universe).n_trials}"
+    )
+    if out:
+        payload = [
+            {
+                **asdict(g),
+                "passed": g.passed,
+                "summary": reports[g.signal].summary(),
+                "regime_ic": reports[g.signal].regime_ic,
+            }
+            for g in results
+        ]
+        Path(out).write_text(json.dumps({"ensemble_icir": ens_icir, "gates": payload}, default=str))
+        typer.echo(f"wrote {out}")
 
 
 def main() -> None:  # pragma: no cover

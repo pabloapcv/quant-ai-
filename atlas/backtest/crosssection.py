@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -220,3 +220,38 @@ def backtest_signal(
         trial_sr_variance=trial_sr_variance,
         regime_ic=regime_ic,
     )
+
+
+def vol_target(
+    report: SignalReport,
+    target_annual: float,
+    *,
+    window: int = 6,
+    max_leverage: float = 2.0,
+    cost_bps: float = 10.0,
+) -> SignalReport:
+    """Scale the long-short book to a volatility target (Barroso & Santa-Clara 2015).
+
+    The scale applied to the return realized after ``date`` uses only returns realized up to
+    ``date``: trailing ``window`` periods of net returns, shifted one period. Extra trading
+    from changing the scale is charged at ``cost_bps``.
+    """
+    ls = report.long_short.sort("date")
+    realized_vol = pl.col("net").rolling_std(window, min_samples=window).shift(1) * math.sqrt(
+        report.periods_per_year
+    )
+    scale = (target_annual / realized_vol).clip(0.0, max_leverage)
+    scaled = (
+        ls.with_columns(scale.alias("scale"))
+        .drop_nulls("scale")
+        .with_columns(
+            (pl.col("scale").diff().abs().fill_null(0.0) * cost_bps / 1e4).alias("_rescale_cost")
+        )
+        .with_columns(
+            (pl.col("gross") * pl.col("scale")).alias("gross"),
+            (pl.col("turnover") * pl.col("scale")).alias("turnover"),
+            (pl.col("net") * pl.col("scale") - pl.col("_rescale_cost")).alias("net"),
+        )
+        .drop("_rescale_cost")
+    )
+    return replace(report, name=report.name, long_short=scaled)
