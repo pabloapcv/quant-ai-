@@ -14,6 +14,8 @@ from atlas.connectors.base import RawStore
 from atlas.connectors.fred import FredConnector
 from atlas.ingest import ingest_series
 from atlas.log import configure_logging
+from atlas.models.regime.engine import RegimeEngine, RegimeReport
+from atlas.models.regime.evaluate import walk_forward
 from atlas.pit.snapshot import create_snapshot, load_snapshot, verify_snapshot
 from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
@@ -24,10 +26,12 @@ ingest_app = typer.Typer(no_args_is_help=True, help="Pull data from sources into
 pit_app = typer.Typer(no_args_is_help=True, help="Query the point-in-time store.")
 snapshot_app = typer.Typer(no_args_is_help=True, help="Create and verify reproducible snapshots.")
 catalog_app = typer.Typer(no_args_is_help=True, help="Inspect the series catalog.")
+regime_app = typer.Typer(no_args_is_help=True, help="Macro regime engine (Phase 2).")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(pit_app, name="pit")
 app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(catalog_app, name="catalog")
+app.add_typer(regime_app, name="regime")
 
 
 @app.callback()
@@ -163,6 +167,64 @@ def snapshot_verify(snapshot_id: str) -> None:
         typer.echo(p)
     typer.echo("ok" if not problems else f"{len(problems)} problems")
     raise typer.Exit(code=1 if problems else 0)
+
+
+# ---------------------------------------------------------------------------- regime
+def _print_report(rep: RegimeReport) -> None:
+    typer.echo(f"Regime as of {rep.as_of} (data through {rep.data_month:%Y-%m})")
+    typer.echo(f"  regime: {rep.regime.value if rep.regime else 'n/a'}")
+    for q, p in sorted(rep.quadrant_probs.items(), key=lambda kv: -kv[1]):
+        typer.echo(f"    {q.value:<24} {p:6.1%}")
+    for name in ("growth", "inflation", "financial_conditions"):
+        ps = getattr(rep, name)
+        score = "n/a" if ps.score is None else f"{ps.score:+.2f}"
+        chg = "" if ps.change_3m is None else f"  3m chg {ps.change_3m:+.2f}"
+        prob = "" if ps.prob_above_trend is None else f"  P(>trend) {ps.prob_above_trend:.0%}"
+        typer.echo(f"  {name:<22} {score}{chg}{prob}  [{ps.n_features} inputs]")
+        for feat, c in sorted(ps.contributions.items(), key=lambda kv: -abs(kv[1])):
+            typer.echo(f"      {feat:<20} {c:+.2f}")
+    if rep.hmm:
+        top = rep.hmm.most_likely
+        typer.echo(f"  HMM ({rep.hmm.n_states} states): {top.label} p={top.prob:.0%}")
+    if rep.recession:
+        typer.echo(
+            f"  recession within 12m: {rep.recession.prob_12m:.0%} "
+            f"(probit, n={rep.recession.n_obs}, trained through {rep.recession.train_end:%Y-%m})"
+        )
+    if rep.missing_features:
+        typer.echo(f"  missing inputs: {', '.join(rep.missing_features)}")
+
+
+@regime_app.command("now")
+def regime_now(
+    at: Annotated[str | None, typer.Option("--at", help="YYYY-MM-DD; default today")] = None,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+    hmm: Annotated[bool, typer.Option("--hmm/--no-hmm")] = True,
+) -> None:
+    """Current (or historical, point-in-time) macro regime."""
+    when = _parse_date(at) if at else datetime.now(UTC).date()
+    rep = RegimeEngine(_store().load_cube()).run(when, with_hmm=hmm)
+    if as_json:
+        typer.echo(rep.model_dump_json(indent=2))
+    else:
+        _print_report(rep)
+
+
+@regime_app.command("backtest")
+def regime_backtest(
+    start: Annotated[str, typer.Option(help="YYYY-MM-DD")] = "1995-01-01",
+    end: Annotated[str | None, typer.Option(help="YYYY-MM-DD; default today")] = None,
+    out: Annotated[str | None, typer.Option(help="Write monthly results to this CSV")] = None,
+) -> None:
+    """Walk-forward: real-time regime vs ex-post regime, and recession-probit scoring."""
+    stop = _parse_date(end) if end else datetime.now(UTC).date()
+    bt = walk_forward(RegimeEngine(_store().load_cube()), _parse_date(start), stop)
+    for k, v in bt.summary().items():
+        typer.echo(f"{k:<26} {v if not isinstance(v, float) else round(v, 4)}")
+    typer.echo(bt.confusion)
+    if out:
+        bt.monthly.write_csv(out)
+        typer.echo(f"wrote {out}")
 
 
 def main() -> None:  # pragma: no cover

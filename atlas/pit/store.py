@@ -20,12 +20,16 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from atlas.pit.clock import to_cutoff
 from atlas.pit.schema import KEY, OBSERVATION_SCHEMA, conform
 from atlas.quality.contracts import check_observations
+
+if TYPE_CHECKING:
+    from atlas.pit.cube import VintageCube
 
 _EVENT_KEY = ["series_id", "event_time"]
 
@@ -144,21 +148,19 @@ class PITStore:
         event_end: date | None = None,
     ) -> pl.DataFrame:
         """The full history of each series exactly as it was known at ``at``."""
-        cutoff = to_cutoff(at)
-        lf = self.scan(series_ids).filter(pl.col("knowledge_time") <= cutoff)
-        if not include_approx:
-            lf = lf.filter(~pl.col("is_approx_vintage"))
-        if event_start is not None:
-            lf = lf.filter(pl.col("event_time") >= event_start)
-        if event_end is not None:
-            lf = lf.filter(pl.col("event_time") <= event_end)
-        return (
-            _latest_vintage(lf, _EVENT_KEY)
-            # a null in the latest vintage means the value was withdrawn: do not resurrect it
-            .filter(pl.col("value").is_not_null())
-            .sort(_EVENT_KEY)
-            .collect()
-        )
+        return resolve_as_of(
+            self.scan(series_ids),
+            at,
+            include_approx=include_approx,
+            event_start=event_start,
+            event_end=event_end,
+        ).collect()
+
+    def load_cube(self, series_ids: Sequence[str] | None = None) -> VintageCube:
+        """Load every vintage into memory for fast repeated as-of queries (walk-forward)."""
+        from atlas.pit.cube import VintageCube
+
+        return VintageCube(self.scan(series_ids).collect())
 
     def history(self, series_id: str, event_time: date) -> pl.DataFrame:
         """Every vintage ever recorded for one observation (its revision path)."""
@@ -217,3 +219,28 @@ class PITStore:
 
 def _latest_vintage(lf: pl.LazyFrame, by: list[str]) -> pl.LazyFrame:
     return lf.group_by(by).agg(pl.all().sort_by("knowledge_time").last())
+
+
+def resolve_as_of(
+    lf: pl.LazyFrame,
+    at: date | datetime,
+    *,
+    include_approx: bool = True,
+    event_start: date | None = None,
+    event_end: date | None = None,
+) -> pl.LazyFrame:
+    """Latest vintage per (series, period) with ``knowledge_time <= at``. The one as-of rule."""
+    cutoff = to_cutoff(at)
+    lf = lf.filter(pl.col("knowledge_time") <= cutoff)
+    if not include_approx:
+        lf = lf.filter(~pl.col("is_approx_vintage"))
+    if event_start is not None:
+        lf = lf.filter(pl.col("event_time") >= event_start)
+    if event_end is not None:
+        lf = lf.filter(pl.col("event_time") <= event_end)
+    return (
+        _latest_vintage(lf, _EVENT_KEY)
+        # a null in the latest vintage means the value was withdrawn: do not resurrect it
+        .filter(pl.col("value").is_not_null())
+        .sort(_EVENT_KEY)
+    )

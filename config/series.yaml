@@ -27,6 +27,9 @@ series:
   - {id: US.LABOR.JOLTS, source: fred, source_id: JTSJOL, frequency: M, publication_lag_days: 40, release_time_et: "10:00", description: JOLTS job openings, tags: [labor]}
   - {id: US.LABOR.SAHM, source: fred, source_id: SAHMREALTIME, frequency: M, publication_lag_days: 10, release_time_et: "23:59", description: Real-time Sahm rule recession indicator, tags: [labor, recession]}
 
+  # NBER dates are announced 6-21 months after the fact; the lag is deliberately long.
+  - {id: US.NBER.RECESSION, source: fred, source_id: USREC, frequency: M, publication_lag_days: 365, description: NBER recession indicator (1 = recession month), tags: [recession, target]}
+
   # ---------------------------------------------------------------- inflation
   - {id: US.CPI.HEADLINE, source: fred, source_id: CPIAUCSL, frequency: M, publication_lag_days: 16, release_time_et: "08:30", description: CPI-U all items SA, tags: [inflation]}
   - {id: US.CPI.CORE, source: fred, source_id: CPILFESL, frequency: M, publication_lag_days: 16, release_time_et: "08:30", description: CPI-U less food and energy SA, tags: [inflation]}

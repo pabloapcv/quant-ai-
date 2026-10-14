@@ -6,12 +6,16 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "aiolimiter>=1.1",
+    "hmmlearn>=0.3.3",
     "httpx>=0.27",
+    "numpy>=2.0",
     "pandera[polars]>=0.20",
     "polars>=1.20",
     "pydantic>=2.8",
     "pydantic-settings>=2.4",
     "pyyaml>=6.0",
+    "scipy>=1.13",
+    "statsmodels>=0.14.4",
     "structlog>=24.1",
     "tenacity>=9.0",
     "typer>=0.12",
@@ -66,7 +70,7 @@ files = ["atlas", "tests"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["aiolimiter.*", "zstandard.*", "pandera.*", "respx.*"]
+module = ["aiolimiter.*", "zstandard.*", "pandera.*", "respx.*", "hmmlearn.*", "statsmodels.*", "scipy.*", "sklearn.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest
