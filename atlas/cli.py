@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import asdict
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -12,6 +11,7 @@ from typing import Annotated
 import polars as pl
 import typer
 
+from atlas import jsonsafe
 from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.connectors.base import RawStore
@@ -21,6 +21,7 @@ from atlas.ingest import IngestReport, ingest_series
 from atlas.log import configure_logging
 from atlas.models.expected_returns.ensemble import EnsembleConfig
 from atlas.models.expected_returns.ensemble import walk_forward as ensemble_walk_forward
+from atlas.models.portfolio.optimizer import PortfolioConfig, backtest_portfolio
 from atlas.models.regime.engine import RegimeEngine, RegimeReport
 from atlas.models.regime.evaluate import walk_forward
 from atlas.models.regime.market import market_regimes
@@ -40,6 +41,9 @@ snapshot_app = typer.Typer(no_args_is_help=True, help="Create and verify reprodu
 catalog_app = typer.Typer(no_args_is_help=True, help="Inspect the series catalog.")
 regime_app = typer.Typer(no_args_is_help=True, help="Macro regime engine (Phase 2).")
 views_app = typer.Typer(no_args_is_help=True, help="Industry views: ensemble forecasts (Phase 4).")
+portfolio_app = typer.Typer(
+    no_args_is_help=True, help="Model portfolio vs equal-weight benchmark (Phase 4)."
+)
 research_app = typer.Typer(no_args_is_help=True, help="Signal research & backtests (Phase 3).")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(pit_app, name="pit")
@@ -47,6 +51,7 @@ app.add_typer(snapshot_app, name="snapshot")
 app.add_typer(catalog_app, name="catalog")
 app.add_typer(regime_app, name="regime")
 app.add_typer(views_app, name="views")
+app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(research_app, name="research")
 
 
@@ -331,7 +336,7 @@ def research_signal(
             "quantile_mean_annual": rep.quantile_mean_annual,
             "regime_ic": rep.regime_ic,
         }
-        typer.echo(json.dumps({**summary, **extra}, default=str))
+        typer.echo(jsonsafe.dumps({**summary, **extra}))
         return
     for k, v in summary.items():
         typer.echo(f"{k:<22} {_fmt(v)}")
@@ -406,7 +411,7 @@ def research_gates(
             }
             for g in results
         ]
-        Path(out).write_text(json.dumps({"ensemble_icir": ens_icir, "gates": payload}, default=str))
+        Path(out).write_text(jsonsafe.dumps({"ensemble_icir": ens_icir, "gates": payload}))
         typer.echo(f"wrote {out}")
 
 
@@ -451,7 +456,7 @@ def views_build(
         n_trials=ctx.log.stats(universe=universe).n_trials,
     )
     if as_json:
-        typer.echo(json.dumps([v.model_dump(mode="json") for v in views], indent=2))
+        typer.echo(jsonsafe.dumps([v.model_dump(mode="json") for v in views], indent=2))
     else:
         typer.echo(f"Views as of {views[0].as_of:%Y-%m} | horizon {views[0].horizon} | {universe}")
         typer.echo(
@@ -487,6 +492,69 @@ def views_evaluate(
         typer.echo(f"{k:<22} {_fmt(v)}")
     typer.echo("\nreliability (predicted vs realized share beating the median):")
     typer.echo(ev.reliability)
+
+
+# ---------------------------------------------------------------------------- portfolio
+@portfolio_app.command("backtest")
+def portfolio_backtest(
+    universe: UniverseOpt = "ind49",
+    horizon: HorizonOpt = 3,
+    start: StartOpt = "1970-01-01",
+    te: Annotated[float, typer.Option(help="Tracking-error budget, annual")] = 0.04,
+    max_active: Annotated[float, typer.Option(help="Max active weight per asset")] = 0.05,
+    cost_bps: CostOpt = 10.0,
+    out: Annotated[str | None, typer.Option(help="Write monthly results to this CSV")] = None,
+) -> None:
+    """Walk-forward model portfolio: views -> constrained tilts -> net active return."""
+    ctx = _context(universe, None, cost_bps, 3)
+    run = ensemble_walk_forward(ctx, EnsembleConfig(horizon=horizon))
+    fc = run.forecasts
+    if start:
+        fc = fc.filter(pl.col("date") >= _parse_date(start))
+    cfg = PortfolioConfig(te_annual=te, max_active=max_active, cost_bps=cost_bps)
+    bt = backtest_portfolio(fc, ctx.panel.select("date", "asset", "ret"), horizon=horizon, cfg=cfg)
+    for k, v in bt.summary().items():
+        typer.echo(f"{k:<28} {_fmt(v)}")
+    if out:
+        bt.monthly.write_csv(out)
+        typer.echo(f"wrote {out}")
+
+
+@portfolio_app.command("now")
+def portfolio_now(
+    universe: UniverseOpt = "ind12",
+    horizon: HorizonOpt = 3,
+    te: Annotated[float, typer.Option(help="Tracking-error budget, annual")] = 0.04,
+    max_active: Annotated[float, typer.Option(help="Max active weight per asset")] = 0.05,
+) -> None:
+    """Latest model-portfolio weights against the equal-weight benchmark."""
+    ctx = _context(universe, None, 10.0, 3)
+    run = ensemble_walk_forward(ctx, EnsembleConfig(horizon=horizon))
+    latest = run.forecasts.drop_nulls("exp_excess")["date"].max()
+    # include the latest month: backtest needs a next-month return, so append a zero row
+    panel = ctx.panel.select("date", "asset", "ret")
+    filler = panel.filter(pl.col("date") == latest).with_columns(
+        pl.col("date").dt.offset_by("1mo"), pl.lit(0.0).alias("ret")
+    )
+    fc = run.forecasts.filter(pl.col("date") >= pl.lit(latest).dt.offset_by("-24mo"))
+    bt = backtest_portfolio(
+        fc,
+        pl.concat([panel, filler]),
+        horizon=horizon,
+        cfg=PortfolioConfig(te_annual=te, max_active=max_active),
+    )
+    w = (
+        bt.weights.filter(pl.col("date") == latest)
+        .with_columns((pl.col("weight") - pl.col("bench")).alias("active"))
+        .sort("active", descending=True)
+    )
+    ex_ante = bt.monthly.filter(pl.col("date") == latest)["ex_ante_te"].item()
+    typer.echo(f"Model portfolio as of {latest!s:.7} | {universe} | ex-ante TE {ex_ante:.1%}")
+    for r in w.iter_rows(named=True):
+        typer.echo(
+            f"{r['asset']:<8} weight {r['weight']:6.1%}  bench {r['bench']:6.1%}  "
+            f"active {r['active']:+6.1%}"
+        )
 
 
 def main() -> None:  # pragma: no cover

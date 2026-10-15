@@ -164,8 +164,9 @@ def test_build_publish_and_evaluate(run_and_ctx, tmp_path: Path) -> None:  # typ
 
     ev = evaluate(run)
     s = ev.summary()
-    assert s["months"] > 0
-    assert 0.0 <= s["coverage"] <= 1.0
+    assert ev.months > 0
+    assert 0.0 <= ev.coverage <= 1.0
+    assert all(v is None or isinstance(v, int | float) for v in s.values())
     assert ev.reliability.height > 0
     st = with_stances(run.forecasts)
     assert set(st["stance"].drop_nulls().unique().to_list()) <= {x.value for x in Stance}
@@ -198,3 +199,12 @@ def test_cli_views(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         assert "coverage" in res.output
     finally:
         get_settings.cache_clear()
+
+
+def test_json_output_is_strict() -> None:
+    from atlas import jsonsafe
+
+    out = jsonsafe.dumps({"a": float("nan"), "b": [1.0, float("inf")], "c": (2, date(2026, 1, 1))})
+    assert json.loads(out) == {"a": None, "b": [1.0, None], "c": [2, "2026-01-01"]}
+    assert "NaN" not in out
+    assert "Infinity" not in out

@@ -17,6 +17,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from atlas import jsonsafe
 from atlas.models.expected_returns.ensemble import EnsembleRun
 from atlas.views.schema import (
     Driver,
@@ -152,7 +153,7 @@ def publish(views: list[View], data_dir: Path, universe: str) -> Path:
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps([v.model_dump(mode="json") for v in views], indent=2))
+    tmp.write_text(jsonsafe.dumps([v.model_dump(mode="json") for v in views], indent=2))
     tmp.replace(path)
     return path
 
@@ -172,8 +173,14 @@ class ViewEvaluation:
     ow_minus_uw_annual: float  # mean excess of overweights minus underweights, annualized
     reliability: pl.DataFrame  # prob bucket -> mean prob, realized frequency, n
 
-    def summary(self) -> dict[str, float | int]:
-        return {k: v for k, v in self.__dict__.items() if not isinstance(v, pl.DataFrame)}
+    def summary(self) -> dict[str, float | int | None]:
+        """Scalar metrics; undefined ones (e.g. no month with both OW and UW calls) are None."""
+        out: dict[str, float | int | None] = {}
+        for k, v in self.__dict__.items():
+            if isinstance(v, pl.DataFrame):
+                continue
+            out[k] = None if isinstance(v, float) and not math.isfinite(v) else v
+        return out
 
 
 def evaluate(run: EnsembleRun, start: date | None = None) -> ViewEvaluation:
