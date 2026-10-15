@@ -17,6 +17,7 @@ from atlas.catalog import Catalog
 from atlas.connectors.base import RawStore
 from atlas.connectors.fred import FredConnector
 from atlas.connectors.kenfrench import KenFrenchConnector
+from atlas.connectors.sdmx import AGENCIES, SdmxConnector
 from atlas.ingest import IngestReport, ingest_series
 from atlas.log import configure_logging
 from atlas.models.expected_returns.ensemble import EnsembleConfig
@@ -163,6 +164,41 @@ def ingest_kenfrench(
             # one connector instance downloads each zip once; serialize to share the cache
             reports = await ingest_series(specs, kf, _store(), concurrency=1)
         return _echo_reports(reports)
+
+    raise typer.Exit(code=1 if asyncio.run(run()) else 0)
+
+
+@ingest_app.command("sdmx")
+def ingest_sdmx(
+    agency: Annotated[
+        list[str] | None, typer.Option("--agency", help="ecb | oecd | bis | imf (repeatable)")
+    ] = None,
+    series: Annotated[list[str] | None, typer.Argument(help="Catalog ids")] = None,
+) -> None:
+    """Ingest global statistics (ECB, OECD, BIS, IMF) over SDMX. No keys needed."""
+    settings = get_settings()
+    cat = _catalog()
+    if series:
+        specs = [cat.get(s) for s in series]
+    else:
+        wanted = agency or sorted(AGENCIES)
+        unknown = set(wanted) - set(AGENCIES)
+        if unknown:
+            raise typer.BadParameter(f"unknown agency: {sorted(unknown)}")
+        specs = [s for a in wanted for s in cat.by_source(a)]
+
+    async def run() -> int:
+        failures = 0
+        for name in sorted({s.source for s in specs}):
+            async with SdmxConnector(
+                name,
+                raw_store=RawStore(settings.data_dir),
+                timeout_s=max(90.0, settings.http_timeout_s),
+            ) as conn:
+                group = [s for s in specs if s.source == name]
+                # serial: entries sharing a query reuse one cached download
+                failures += _echo_reports(await ingest_series(group, conn, _store(), concurrency=1))
+        return failures
 
     raise typer.Exit(code=1 if asyncio.run(run()) else 0)
 

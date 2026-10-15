@@ -16,6 +16,8 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   12-month recession probit with NBER label lag, and a walk-forward evaluator.
 - `atlas/connectors/kenfrench.py` — Ken French data library (FF5 + momentum factors,
   12 and 49 industry portfolios back to 1926), no key needed.
+- `atlas/connectors/sdmx.py` — ECB, OECD, BIS and IMF over SDMX: euro FX and yield curve,
+  14 country CLIs, share prices and 10Y yields, real effective FX, CPIs (no keys).
 - `atlas/backtest/` — purged K-fold and combinatorial purged CV, IC / Newey-West t,
   quantile long-short backtests with costs, PSR, deflated Sharpe, PBO (CSCV), trial log.
 - `atlas/signals/industry.py` — momentum (incl. vol-targeted), reversal, low-volatility,
@@ -39,6 +41,7 @@ uv run atlas regime now
 uv run atlas regime now --at 2008-09-30   # point-in-time: only what was known then
 uv run atlas regime backtest --start 1995-01-01 --out regime_bt.csv
 uv run atlas ingest kenfrench --all     # free, no key
+uv run atlas ingest sdmx                # ECB, OECD, BIS, IMF; free, no keys
 uv run atlas research signal mom_12_1 --universe ind49
 uv run atlas research family momentum --universe ind49   # PBO across configs
 uv run atlas research gates --universe ind49             # PRD promotion gates

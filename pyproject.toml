@@ -58,7 +58,7 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "TID", "PT", "RUF", "DTZ", "S"]
 ignore = ["S101"]  # asserts are fine; mypy-style invariants
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S", "DTZ"]
+"tests/**" = ["S", "DTZ", "E501"]  # fixtures embed real CSV/API payload lines
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 # PRD §5.2: scraped/unofficial market data is forbidden in production code.

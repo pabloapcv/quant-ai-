@@ -24,7 +24,7 @@ def test_repo_catalog_loads_and_parses_times() -> None:
     assert cpi.source_id == "CPILFESL"
     assert cpi.release_time_et == time(8, 30)  # quoted in YAML, not base-60
     assert cat.get("US.RATES.10Y").release_time_et == time(23, 59)
-    assert {s.source for s in cat} == {"fred", "kenfrench"}
+    assert {s.source for s in cat} == {"fred", "kenfrench", "ecb", "oecd", "bis", "imf"}
 
 
 def test_catalog_rejects_duplicates_and_unknown() -> None:
