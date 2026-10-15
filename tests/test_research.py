@@ -278,3 +278,10 @@ def test_gate_suite_and_cards(tmp_path: Path) -> None:
     assert "Do not edit by hand" in card
     index = (tmp_path / "cards" / "README.md").read_text()
     assert "[`mom_12_1`](mom_12_1.md)" in index
+
+
+def test_market_regimes_needs_history(tmp_path: Path) -> None:
+    store = PITStore(tmp_path)
+    store.write(make_obs_frame([("FF.FACTOR.MKTRF", date(2020, 1, 1), KNOWN, 1.0)]))
+    with pytest.raises(ValueError, match=r"months of FF\.FACTOR\.MKTRF"):
+        market_regimes(store)

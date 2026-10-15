@@ -18,6 +18,9 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   12 and 49 industry portfolios back to 1926), no key needed.
 - `atlas/connectors/sdmx.py` — ECB, OECD, BIS and IMF over SDMX: euro FX and yield curve,
   14 country CLIs, share prices and 10Y yields, real effective FX, CPIs (no keys).
+- `atlas/signals/country.py`, `universes.py` — 14 country equity markets (USD since 1999;
+  9 developed markets in local currency since 1955): momentum, leading-indicator change,
+  falling yields, value and volatility signals through the same gates, views and portfolio.
 - `atlas/backtest/` — purged K-fold and combinatorial purged CV, IC / Newey-West t,
   quantile long-short backtests with costs, PSR, deflated Sharpe, PBO (CSCV), trial log.
 - `atlas/signals/industry.py` — momentum (incl. vol-targeted), reversal, low-volatility,
@@ -45,6 +48,7 @@ uv run atlas ingest sdmx                # ECB, OECD, BIS, IMF; free, no keys
 uv run atlas research signal mom_12_1 --universe ind49
 uv run atlas research family momentum --universe ind49   # PBO across configs
 uv run atlas research gates --universe ind49             # PRD promotion gates
+uv run atlas views build --universe ctry_dev_lcl         # country views
 uv run atlas research cards --universe ind49             # regenerate docs/signals
 uv run atlas snapshot create
 ```

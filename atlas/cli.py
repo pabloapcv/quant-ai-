@@ -31,8 +31,8 @@ from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
 from atlas.settings import get_settings
 from atlas.signals.cards import write_cards
-from atlas.signals.industry import FAMILIES, SIGNALS, UNIVERSES, research_panel
 from atlas.signals.research import ResearchContext, family_pbo, run_gate_suite, run_signal
+from atlas.signals.universes import UNIVERSES, get_universe
 from atlas.views.publish import build_views, evaluate, publish
 
 app = typer.Typer(no_args_is_help=True, help="Atlas quant research assistant.")
@@ -321,35 +321,42 @@ def _fmt(v: object) -> str:
 
 
 def _context(universe: str, start: str | None, cost_bps: float, quantiles: int) -> ResearchContext:
+    try:
+        uni = get_universe(universe)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
     store = _store()
     try:
         regimes: pl.DataFrame | None = market_regimes(store).select("date", "regime")
     except ValueError:
         regimes = None  # market factor not ingested: regime-conditional IC is skipped
     return ResearchContext(
-        panel=research_panel(store, universe),
+        panel=uni.build_panel(store),
         universe=universe,
         log=TrialLog(get_settings().data_dir),
         regimes=regimes,
         n_quantiles=quantiles,
         cost_bps=cost_bps,
         start=_parse_date(start) if start else None,
+        signals=uni.signals,
+        families=uni.families,
     )
 
 
-UniverseOpt = Annotated[str, typer.Option(help="ind12 | ind49")]
+UniverseOpt = Annotated[str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl")]
 StartOpt = Annotated[str | None, typer.Option(help="YYYY-MM-DD")]
 CostOpt = Annotated[float, typer.Option(help="Cost per unit one-way turnover, bps")]
 QuantOpt = Annotated[int, typer.Option(min=2, max=10)]
 
 
 @research_app.command("list")
-def research_list() -> None:
+def research_list(universe: UniverseOpt = "ind49") -> None:
     """Available signals, families and universes."""
-    for s in SIGNALS.values():
+    uni = get_universe(universe)
+    for s in uni.signals.values():
         typer.echo(f"{s.name:<16} {s.family:<20} {s.description}")
         typer.echo(f"{'':<16} {'':<20} ref: {s.reference}")
-    typer.echo(f"\nfamilies: {', '.join(FAMILIES)}   universes: {', '.join(UNIVERSES)}")
+    typer.echo(f"\nfamilies: {', '.join(uni.families)}   universes: {', '.join(UNIVERSES)}")
 
 
 @research_app.command("signal")
@@ -362,9 +369,10 @@ def research_signal(
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Tearsheet for one signal: IC, decay, quantile spread, net Sharpe, PSR/DSR, regimes."""
-    if name not in SIGNALS:
+    ctx = _context(universe, start, cost_bps, quantiles)
+    if name not in ctx.signals:
         raise typer.BadParameter(f"unknown signal {name!r}; see `atlas research list`")
-    rep = run_signal(SIGNALS[name], _context(universe, start, cost_bps, quantiles))
+    rep = run_signal(ctx.signals[name], ctx)
     summary = rep.summary()
     if as_json:
         extra = {
@@ -394,10 +402,10 @@ def research_family(
     splits: Annotated[int, typer.Option(help="CSCV blocks (even)")] = 16,
 ) -> None:
     """Backtest every configuration in a family, then estimate PBO across them."""
-    if family not in FAMILIES:
-        raise typer.BadParameter(f"unknown family {family!r}: {', '.join(FAMILIES)}")
     ctx = _context(universe, start, cost_bps, quantiles)
-    reports = [run_signal(s, ctx) for s in FAMILIES[family]]
+    if family not in ctx.families:
+        raise typer.BadParameter(f"unknown family {family!r}: {', '.join(ctx.families)}")
+    reports = [run_signal(s, ctx) for s in ctx.families[family]]
     pbo, months = family_pbo(reports, n_splits=splits)
     typer.echo(f"{'config':<16} {'IC':>7} {'t(NW)':>7} {'Sharpe':>7} {'DSR':>6}")
     for rep in sorted(reports, key=lambda r: -r.sharpe_net):
@@ -483,7 +491,9 @@ def views_build(
 ) -> None:
     """Current views: stance, calibrated probability, expected excess return and its range."""
     ctx = _context(universe, None, 10.0, 3)
-    run = ensemble_walk_forward(ctx, EnsembleConfig(horizon=horizon))
+    run = ensemble_walk_forward(
+        ctx, EnsembleConfig(horizon=horizon, components=get_universe(universe).ensemble_components)
+    )
     views = build_views(
         run,
         universe,
@@ -522,7 +532,9 @@ def views_evaluate(
 ) -> None:
     """Walk-forward track record of the view model: IC, calibration, coverage, hit rate."""
     ctx = _context(universe, None, 10.0, 3)
-    run = ensemble_walk_forward(ctx, EnsembleConfig(horizon=horizon))
+    run = ensemble_walk_forward(
+        ctx, EnsembleConfig(horizon=horizon, components=get_universe(universe).ensemble_components)
+    )
     ev = evaluate(run, _parse_date(start) if start else None)
     for k, v in ev.summary().items():
         typer.echo(f"{k:<22} {_fmt(v)}")
@@ -543,7 +555,9 @@ def portfolio_backtest(
 ) -> None:
     """Walk-forward model portfolio: views -> constrained tilts -> net active return."""
     ctx = _context(universe, None, cost_bps, 3)
-    run = ensemble_walk_forward(ctx, EnsembleConfig(horizon=horizon))
+    run = ensemble_walk_forward(
+        ctx, EnsembleConfig(horizon=horizon, components=get_universe(universe).ensemble_components)
+    )
     fc = run.forecasts
     if start:
         fc = fc.filter(pl.col("date") >= _parse_date(start))
@@ -565,7 +579,9 @@ def portfolio_now(
 ) -> None:
     """Latest model-portfolio weights against the equal-weight benchmark."""
     ctx = _context(universe, None, 10.0, 3)
-    run = ensemble_walk_forward(ctx, EnsembleConfig(horizon=horizon))
+    run = ensemble_walk_forward(
+        ctx, EnsembleConfig(horizon=horizon, components=get_universe(universe).ensemble_components)
+    )
     latest = run.forecasts.drop_nulls("exp_excess")["date"].max()
     # include the latest month: backtest needs a next-month return, so append a zero row
     panel = ctx.panel.select("date", "asset", "ret")

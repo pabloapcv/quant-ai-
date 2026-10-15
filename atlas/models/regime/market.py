@@ -26,6 +26,11 @@ def market_regimes(store: PITStore, *, window: int = 12, min_history: int = 36) 
     mkt = latest_by_prefix(store, MARKET_SERIES_PREFIX, None).filter(pl.col("asset") == "")
     if mkt.is_empty():
         raise ValueError("FF.FACTOR.MKTRF missing — run `atlas ingest kenfrench FF.FACTOR.MKTRF`")
+    if mkt.height < window + min_history:
+        raise ValueError(
+            f"need {window + min_history} months of FF.FACTOR.MKTRF for market regimes, "
+            f"have {mkt.height}"
+        )
     r = (pl.col("value") / 100.0).log1p()
     df = mkt.sort("event_time").select(
         pl.col("event_time").alias("date"),

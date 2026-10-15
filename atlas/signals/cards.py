@@ -18,7 +18,7 @@ import polars as pl
 from atlas.backtest import gates as g
 from atlas.backtest.crosssection import SignalReport
 from atlas.backtest.metrics import max_drawdown
-from atlas.signals.industry import SIGNALS, SignalDef
+from atlas.signals.industry import SignalDef
 from atlas.signals.research import GateSuite
 
 RATIONALE = {
@@ -244,7 +244,7 @@ def write_cards(suite: GateSuite, out_dir: Path, *, generated: date, cost_bps: f
         "| Signal | Gates passed | IC t-stat | Sharpe net | DSR | Verdict |",
         "|---|---|---|---|---|---|",
     ]
-    for name, sig in SIGNALS.items():
+    for name, sig in suite.signals.items():
         if name not in suite.gates:
             continue  # inputs missing for this universe
         path = out_dir / f"{name}.md"

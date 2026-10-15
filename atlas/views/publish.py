@@ -19,6 +19,7 @@ import polars as pl
 
 from atlas import jsonsafe
 from atlas.models.expected_returns.ensemble import EnsembleRun
+from atlas.signals.universes import get_universe
 from atlas.views.schema import (
     Driver,
     ExpectedReturn,
@@ -28,21 +29,6 @@ from atlas.views.schema import (
     confidence_for,
     stance_with_hysteresis,
 )
-
-INDUSTRY12_NAMES = {  # keys are catalog asset ids (upper-case Ken French names)
-    "NODUR": "Consumer non-durables",
-    "DURBL": "Consumer durables",
-    "MANUF": "Manufacturing",
-    "ENRGY": "Energy",
-    "CHEMS": "Chemicals",
-    "BUSEQ": "Business equipment (tech)",
-    "TELCM": "Telecom",
-    "UTILS": "Utilities",
-    "SHOPS": "Retail and wholesale",
-    "HLTH": "Healthcare",
-    "MONEY": "Finance",
-    "OTHER": "Other",
-}
 
 
 class ViewExistsError(RuntimeError):
@@ -74,6 +60,7 @@ def build_views(
     created_at: datetime | None = None,
 ) -> list[View]:
     """Views for one month (default: the latest month with a score)."""
+    uni = get_universe(universe)
     fc = with_stances(run.forecasts)
     scored = fc.drop_nulls("score")
     latest = scored["date"].max()
@@ -91,7 +78,7 @@ def build_views(
                 contribution=float(weights[n]) * float(r[f"z_{n}"]),
                 value=float(r[f"z_{n}"]),
             )
-            for n in run.config.components
+            for n in run.component_list
             if n in weights and weights[n] > 0 and r.get(f"z_{n}") is not None
         ]
         drivers.sort(key=lambda d: -abs(d.contribution))
@@ -104,9 +91,9 @@ def build_views(
                 view_id=f"{uid[:8]}-{uid[8:12]}-{uid[12:16]}-{uid[16:20]}-{uid[20:32]}",
                 created_at=created,
                 as_of=month,
-                asset_id=f"INDUSTRY.{universe.upper()}.{r['asset'].upper()}",
-                asset_name=INDUSTRY12_NAMES.get(r["asset"], r["asset"]),
-                asset_class="equity_industry",
+                asset_id=f"{uni.asset_id_prefix}.{r['asset'].upper()}",
+                asset_name=uni.asset_name(r["asset"]),
+                asset_class=uni.asset_class,
                 horizon=f"{run.config.horizon}M",
                 stance=stance,
                 score=max(-3.0, min(3.0, float(r["score"]))),
@@ -198,7 +185,11 @@ def evaluate(run: EnsembleRun, start: date | None = None) -> ViewEvaluation:
     ic_arr = ic["ic"].drop_nulls().drop_nans().to_numpy()
     sd = float(np.std(ic_arr, ddof=1)) if ic_arr.size > 1 else math.nan
 
-    cal = fc.drop_nulls("prob").with_columns((pl.col("excess_med") > 0).cast(pl.Float64).alias("y"))
+    cal = (
+        fc.drop_nulls("prob")
+        .filter(pl.col("excess_med") != 0)
+        .with_columns((pl.col("excess_med") > 0).cast(pl.Float64).alias("y"))
+    )
     y = cal["y"].to_numpy()
     p = cal["prob"].to_numpy()
     brier = float(np.mean((p - y) ** 2)) if y.size else math.nan
@@ -218,7 +209,7 @@ def evaluate(run: EnsembleRun, start: date | None = None) -> ViewEvaluation:
     coverage = float(inside.mean()) if inside.size else math.nan
     ow = pl.col("stance").is_in([Stance.OVERWEIGHT.value, Stance.STRONG_OVERWEIGHT.value])
     uw = pl.col("stance").is_in([Stance.UNDERWEIGHT.value, Stance.STRONG_UNDERWEIGHT.value])
-    calls = fc.filter(ow | uw)
+    calls = fc.filter((ow | uw) & (pl.col("excess_med") != 0))
     hits = calls.select(
         ((pl.col("excess_med") > 0) == pl.col("stance").str.contains("overweight")).mean()
     ).item()

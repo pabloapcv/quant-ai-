@@ -33,7 +33,6 @@ import numpy as np
 import polars as pl
 from sklearn.linear_model import LogisticRegression
 
-from atlas.signals.industry import SIGNALS
 from atlas.signals.research import ResearchContext, signal_panel
 
 DEFAULT_COMPONENTS = (
@@ -48,7 +47,8 @@ DEFAULT_COMPONENTS = (
 
 @dataclass(frozen=True)
 class EnsembleConfig:
-    components: tuple[str, ...] = DEFAULT_COMPONENTS
+    # None = every distinct ranking in the universe's signal set
+    components: tuple[str, ...] | None = DEFAULT_COMPONENTS
     min_history: int = 60  # months of past ICs before a component can get weight
     shrink: float = 0.5  # toward equal weight among positive-IC components
     horizon: int = 1  # months
@@ -64,6 +64,7 @@ class EnsembleRun:
     config: EnsembleConfig
     forecasts: pl.DataFrame  # date, asset, score, exp_excess, p_lo, p_hi, prob, agreement, ...
     weights: pl.DataFrame  # date, <component> weights
+    component_list: tuple[str, ...] = ()
     components: dict[str, pl.DataFrame] = field(default_factory=dict)
 
 
@@ -79,12 +80,21 @@ def forward_return(horizon: int) -> pl.Expr:
     return (ahead.shift(-1).exp() - 1).over("asset")
 
 
+def component_names(ctx: ResearchContext, cfg: EnsembleConfig) -> list[str]:
+    """Components for this universe: the configured ones it has, else all distinct rankings."""
+    distinct = [n for n, s in ctx.signals.items() if s.ranking_of is None]
+    if cfg.components is None:
+        return distinct
+    chosen = [c for c in cfg.components if c in ctx.signals]
+    return chosen or distinct
+
+
 def component_panel(ctx: ResearchContext, names: Sequence[str], horizon: int = 1) -> pl.DataFrame:
     """(date, asset, fwd_ret, excess, z_<name>...); ``fwd_ret`` spans ``horizon`` months."""
     out: pl.DataFrame | None = None
     for name in names:
         p = (
-            signal_panel(SIGNALS[name], ctx)
+            signal_panel(ctx.signals[name], ctx)
             .sort(["asset", "date"])
             .select(
                 "date",
@@ -124,7 +134,7 @@ def _past_mean(values: np.ndarray, min_count: int, lag: int = 1) -> np.ndarray:
 
 def walk_forward(ctx: ResearchContext, config: EnsembleConfig | None = None) -> EnsembleRun:
     cfg = config or EnsembleConfig()
-    names = [c for c in cfg.components if c in SIGNALS]
+    names = component_names(ctx, cfg)
     zcols = [f"z_{n}" for n in names]
     h = cfg.horizon
     panel = component_panel(ctx, names, h)
@@ -201,7 +211,12 @@ def walk_forward(ctx: ResearchContext, config: EnsembleConfig | None = None) -> 
         "excess_med",
         *zcols,
     ]
-    return EnsembleRun(config=cfg, forecasts=scored.select(keep), weights=weights)
+    return EnsembleRun(
+        config=cfg,
+        forecasts=scored.select(keep),
+        weights=weights,
+        component_list=tuple(names),
+    )
 
 
 def _conformal_and_calibration(
@@ -239,7 +254,13 @@ def _conformal_and_calibration(
             p_hi[rows] = exp_ex[rows] + q_hi
         if last >= cfg.calib_min_dates and (model is None or t % cfg.calib_refit == 0):
             hist = np.concatenate(rows_by_date[:last])
-            ok = np.isfinite(score[hist]) & np.isfinite(beats_median[hist])
+            # with an odd number of assets one sits exactly on the median: it neither beats
+            # nor trails it, and counting it as a loss would bias the base rate below 50%
+            ok = (
+                np.isfinite(score[hist])
+                & np.isfinite(beats_median[hist])
+                & (beats_median[hist] != 0)
+            )
             y = (beats_median[hist][ok] > 0).astype(int)
             if ok.sum() >= 200 and 0 < y.sum() < y.size:
                 model = LogisticRegression(C=1e6)
