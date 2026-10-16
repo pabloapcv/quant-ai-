@@ -1,0 +1,341 @@
+"""Tools the assistant can call: thin, cached, JSON-safe wrappers over the quant engine.
+
+PRD §10.1: the language model is an analyst, not a calculator — every number it states
+must come from one of these tools. Each tool returns a plain dict; errors (missing data,
+unknown universe) come back as ``{"error": ...}`` so the model can explain them instead of
+guessing. Results are cached per argument set: a conversation re-asking the same thing
+does not re-run a 20-second gate suite.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any
+
+import polars as pl
+
+from atlas import jsonsafe
+from atlas.backtest.trials import TrialLog
+from atlas.catalog import Catalog
+from atlas.models.expected_returns.ensemble import EnsembleConfig, EnsembleRun, walk_forward
+from atlas.models.portfolio.optimizer import PortfolioConfig, backtest_portfolio
+from atlas.models.regime.engine import RegimeEngine
+from atlas.models.regime.market import market_regimes
+from atlas.pit.store import PITStore
+from atlas.signals.research import ResearchContext, run_gate_suite
+from atlas.signals.universes import UNIVERSES, get_universe
+from atlas.views.publish import build_views, evaluate
+
+UNIVERSE_ENUM = sorted(UNIVERSES)
+
+
+def _schema(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": props,
+        "required": required,
+        "additionalProperties": False,
+    }
+
+
+_UNIVERSE = {"type": "string", "enum": UNIVERSE_ENUM, "description": "Research universe id"}
+_HORIZON = {"type": "integer", "enum": [1, 3], "description": "Forecast horizon in months"}
+
+TOOL_SPECS: list[dict[str, Any]] = [
+    {
+        "name": "list_universes",
+        "description": "List the research universes (industries, countries) with what each covers.",
+        "input_schema": _schema({}, []),
+    },
+    {
+        "name": "get_views",
+        "description": (
+            "Current model views for every asset in a universe: stance, calibrated probability "
+            "of beating the median asset, expected excess return vs the equal-weight average "
+            "with its 80% range, signal agreement, confidence and the top drivers."
+        ),
+        "input_schema": _schema(
+            {"universe": _UNIVERSE, "horizon": _HORIZON}, ["universe", "horizon"]
+        ),
+    },
+    {
+        "name": "get_track_record",
+        "description": (
+            "Walk-forward track record of the view model since 1970: rank IC, ICIR, Brier "
+            "score vs 50%, interval coverage, directional hit rate, overweight-minus-underweight."
+        ),
+        "input_schema": _schema(
+            {"universe": _UNIVERSE, "horizon": _HORIZON}, ["universe", "horizon"]
+        ),
+    },
+    {
+        "name": "get_signal_gates",
+        "description": (
+            "Every signal in a universe checked against the PRD promotion gates (IC t-stat, "
+            "deflated Sharpe, family PBO, regime consistency, ensemble contribution, rationale). "
+            "Slow on first call (about 20-30 seconds)."
+        ),
+        "input_schema": _schema({"universe": _UNIVERSE}, ["universe"]),
+    },
+    {
+        "name": "get_portfolio",
+        "description": (
+            "Model portfolio for a universe: latest weights vs the equal-weight benchmark and "
+            "the walk-forward backtest since 1970 (net active return, tracking error, "
+            "information ratio)."
+        ),
+        "input_schema": _schema({"universe": _UNIVERSE}, ["universe"]),
+    },
+    {
+        "name": "search_catalog",
+        "description": "Find data series by keyword ('japan yield', 'cpi', 'euro'); returns ids.",
+        "input_schema": _schema({"query": {"type": "string"}}, ["query"]),
+    },
+    {
+        "name": "get_series",
+        "description": (
+            "Recent observations of one data series as known at a date (point-in-time). "
+            "Returns up to 'last_n' periods."
+        ),
+        "input_schema": _schema(
+            {
+                "series_id": {"type": "string"},
+                "last_n": {"type": "integer", "description": "1-120"},
+                "as_of": {"type": "string", "description": "YYYY-MM-DD; empty for latest"},
+            },
+            ["series_id", "last_n", "as_of"],
+        ),
+    },
+    {
+        "name": "get_regime",
+        "description": (
+            "US macro regime as of a date: growth/inflation/financial-conditions scores, "
+            "quadrant probabilities and 12-month recession probability. Needs FRED data."
+        ),
+        "input_schema": _schema(
+            {"as_of": {"type": "string", "description": "YYYY-MM-DD; empty for today"}},
+            ["as_of"],
+        ),
+    },
+]
+
+
+class ToolKit:
+    def __init__(self, data_dir: Path, config_dir: Path) -> None:
+        self.data_dir = data_dir
+        self.store = PITStore(data_dir)
+        self.catalog = Catalog.load(config_dir / "series.yaml")
+        self._cache: dict[str, dict[str, Any]] = {}
+        self._runs: dict[tuple[str, int], tuple[ResearchContext, EnsembleRun]] = {}
+        self._handlers: dict[str, Callable[..., dict[str, Any]]] = {
+            "list_universes": self.list_universes,
+            "get_views": self.get_views,
+            "get_track_record": self.get_track_record,
+            "get_signal_gates": self.get_signal_gates,
+            "get_portfolio": self.get_portfolio,
+            "search_catalog": self.search_catalog,
+            "get_series": self.get_series,
+            "get_regime": self.get_regime,
+        }
+
+    # ------------------------------------------------------------------ dispatch
+    def call(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
+        """Run a tool; returns (JSON text, is_error). Never raises for tool-level failures."""
+        key = f"{name}:{json.dumps(arguments, sort_keys=True)}"
+        if key not in self._cache:
+            handler = self._handlers.get(name)
+            if handler is None:
+                return jsonsafe.dumps({"error": f"unknown tool {name!r}"}), True
+            try:
+                self._cache[key] = handler(**arguments)
+            except (ValueError, KeyError, TypeError) as exc:
+                return jsonsafe.dumps({"error": str(exc)}), True
+        result = self._cache[key]
+        return jsonsafe.dumps(result), "error" in result
+
+    # ------------------------------------------------------------------ helpers
+    def _context(self, universe: str, *, regimes: bool = False) -> ResearchContext:
+        uni = get_universe(universe)
+        reg = None
+        if regimes:
+            try:
+                reg = market_regimes(self.store).select("date", "regime")
+            except ValueError:
+                reg = None
+        return ResearchContext(
+            panel=uni.build_panel(self.store),
+            universe=universe,
+            log=TrialLog(self.data_dir),
+            regimes=reg,
+            n_quantiles=3,
+            signals=uni.signals,
+            families=uni.families,
+        )
+
+    def _run(self, universe: str, horizon: int) -> tuple[ResearchContext, EnsembleRun]:
+        if (universe, horizon) not in self._runs:
+            ctx = self._context(universe)
+            cfg = EnsembleConfig(
+                horizon=horizon, components=get_universe(universe).ensemble_components
+            )
+            self._runs[(universe, horizon)] = (ctx, walk_forward(ctx, cfg))
+        return self._runs[(universe, horizon)]
+
+    # ------------------------------------------------------------------ tools
+    def list_universes(self) -> dict[str, Any]:
+        return {
+            "universes": [{"id": u.name, "description": u.description} for u in UNIVERSES.values()]
+        }
+
+    def get_views(self, universe: str, horizon: int) -> dict[str, Any]:
+        _, run = self._run(universe, horizon)
+        views = build_views(run, universe)
+        return {
+            "universe": universe,
+            "as_of_month": views[0].as_of.isoformat(),
+            "horizon": views[0].horizon,
+            "benchmark": views[0].expected_excess_return.benchmark,
+            "views": [
+                {
+                    "asset": v.asset_name,
+                    "stance": v.stance.value,
+                    "score": round(v.score, 2),
+                    "prob_beat_median": None
+                    if v.prob_outperform is None
+                    else round(v.prob_outperform, 3),
+                    "expected_excess_return": round(v.expected_excess_return.mean, 4),
+                    "range_p10": v.expected_excess_return.p10
+                    and round(v.expected_excess_return.p10, 4),
+                    "range_p90": v.expected_excess_return.p90
+                    and round(v.expected_excess_return.p90, 4),
+                    "agreement": None if v.agreement is None else round(v.agreement, 2),
+                    "confidence": v.confidence.value,
+                    "top_drivers": [
+                        {"signal": d.name, "contribution": round(d.contribution, 3)}
+                        for d in v.drivers[:3]
+                    ],
+                }
+                for v in views
+            ],
+            "note": "Returns are fractions (0.012 = 1.2%) over the horizon. Not investment advice.",
+        }
+
+    def get_track_record(self, universe: str, horizon: int) -> dict[str, Any]:
+        _, run = self._run(universe, horizon)
+        ev = evaluate(run, date(1970, 1, 1))
+        summary = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in ev.summary().items()}
+        return {"universe": universe, "horizon_months": horizon, "since": "1970-01", **summary}
+
+    def get_signal_gates(self, universe: str) -> dict[str, Any]:
+        suite = run_gate_suite(self._context(universe, regimes=True), n_splits=8)
+        return {
+            "universe": universe,
+            "configurations_tried": suite.n_trials,
+            "signals": [
+                {
+                    "signal": g.signal,
+                    "description": suite.signals[g.signal].description,
+                    "ic_tstat": round(g.ic_tstat, 2),
+                    "deflated_sharpe": round(g.dsr, 3),
+                    "family_pbo": None if g.pbo is None else round(g.pbo, 3),
+                    "regimes_positive_of_4": g.regimes_positive,
+                    "ensemble_contribution": None
+                    if g.marginal_icir is None
+                    else round(g.marginal_icir, 3),
+                    "gates_passed_of_6": sum(g.checks.values()),
+                    "failed_gates": g.failed,
+                }
+                for g in suite.gates.values()
+            ],
+        }
+
+    def get_portfolio(self, universe: str) -> dict[str, Any]:
+        ctx, run = self._run(universe, 3)
+        cap = 0.05 if universe.startswith("ind") else 0.08
+        panel = ctx.panel.select("date", "asset", "ret")
+        latest = run.forecasts.drop_nulls("exp_excess")["date"].max()
+        filler = panel.filter(pl.col("date") == latest).with_columns(
+            pl.col("date").dt.offset_by("1mo"), pl.lit(0.0).alias("ret")
+        )
+        bt = backtest_portfolio(
+            run.forecasts.filter(pl.col("date") >= date(1970, 1, 1)),
+            pl.concat([panel, filler]),
+            horizon=3,
+            cfg=PortfolioConfig(max_active=cap),
+        )
+        hist = bt.monthly.filter(pl.col("date") < latest)
+        summary = type(bt)(monthly=hist, weights=bt.weights).summary()
+        w = bt.weights.filter(pl.col("date") == latest)
+        uni = get_universe(universe)
+        return {
+            "universe": universe,
+            "as_of_month": str(latest),
+            "constraints": {
+                "tracking_error_budget": 0.04,
+                "max_active_weight": cap,
+                "long_only": True,
+            },
+            "weights": [
+                {
+                    "asset": uni.asset_name(r["asset"]),
+                    "weight": round(r["weight"], 4),
+                    "benchmark": round(r["bench"], 4),
+                    "active": round(r["weight"] - r["bench"], 4),
+                }
+                for r in w.sort("weight", descending=True).iter_rows(named=True)
+            ],
+            "backtest_since_1970": {
+                k: (round(v, 4) if isinstance(v, float) else v) for k, v in summary.items()
+            },
+        }
+
+    def search_catalog(self, query: str) -> dict[str, Any]:
+        words = [w for w in query.lower().split() if w]
+        hits = [
+            {
+                "id": s.id,
+                "description": s.description,
+                "frequency": s.frequency.value,
+                "source": s.source,
+            }
+            for s in self.catalog
+            if all(w in f"{s.id} {s.description} {' '.join(s.tags)}".lower() for w in words)
+        ]
+        return {"query": query, "matches": hits[:25], "total": len(hits)}
+
+    def get_series(self, series_id: str, last_n: int, as_of: str) -> dict[str, Any]:
+        spec = self.catalog.get(series_id)
+        at: date | datetime = date.fromisoformat(as_of) if as_of else datetime.now(UTC)
+        df = self.store.as_of([series_id], at)
+        if df.is_empty():
+            return {"error": f"no data for {series_id} as of {as_of or 'now'}; ingest it first"}
+        n = max(1, min(int(last_n), 120))
+        tail = df.sort("event_time").tail(n)
+        return {
+            "series_id": series_id,
+            "description": spec.description,
+            "as_of": as_of or "latest",
+            "observations": [
+                {
+                    "period": r["event_time"].isoformat(),
+                    "value": r["value"],
+                    "approx_vintage": r["is_approx_vintage"],
+                }
+                for r in tail.iter_rows(named=True)
+            ],
+        }
+
+    def get_regime(self, as_of: str) -> dict[str, Any]:
+        cube = self.store.load_cube()
+        if "US.IP" not in cube:
+            return {
+                "error": "macro regime needs FRED data: set ATLAS_FRED_API_KEY and run "
+                "`atlas ingest fred --all`"
+            }
+        at = date.fromisoformat(as_of) if as_of else datetime.now(UTC).date()
+        rep = RegimeEngine(cube).run(at, with_hmm=False)
+        out: dict[str, Any] = json.loads(rep.model_dump_json())
+        return out

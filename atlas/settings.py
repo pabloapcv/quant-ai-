@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     fred_max_calls_per_minute: int = 100
     http_timeout_s: float = 30.0
 
+    # Assistant (Phase 6). Credentials come from ANTHROPIC_API_KEY or an `ant auth login`
+    # profile, resolved by the Anthropic SDK itself.
+    assistant_model: str = "claude-opus-5-5"
+    assistant_effort: str = "medium"
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

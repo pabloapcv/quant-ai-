@@ -609,6 +609,50 @@ def portfolio_now(
         )
 
 
+# ---------------------------------------------------------------------------- assistant
+@app.command("ask")
+def ask(
+    question: str,
+    model: Annotated[str | None, typer.Option(help="Claude model id")] = None,
+    effort: Annotated[str | None, typer.Option(help="low | medium | high | xhigh | max")] = None,
+    show_tools: Annotated[
+        bool, typer.Option("--show-tools", help="List the tool calls made")
+    ] = False,
+) -> None:
+    """Ask the research assistant a question; every number is checked against tool results."""
+    import anthropic
+
+    from atlas.agent.assistant import DISCLAIMER, Assistant
+    from atlas.agent.tools import ToolKit
+
+    s = get_settings()
+    try:
+        client = anthropic.Anthropic()
+        assistant = Assistant(
+            client,
+            ToolKit(s.data_dir, s.config_dir),
+            model=model or s.assistant_model,
+            effort=effort or s.assistant_effort,
+        )
+        answer = assistant.ask(question)
+    except anthropic.AuthenticationError:
+        raise typer.BadParameter(
+            "Anthropic credentials missing or invalid: "
+            "set ANTHROPIC_API_KEY or run `ant auth login`"
+        ) from None
+    except anthropic.APIConnectionError:
+        typer.echo("Could not reach the Anthropic API; check the network and retry.")
+        raise typer.Exit(code=1) from None
+    typer.echo(answer.text)
+    if answer.grounding.unsupported:
+        nums = ", ".join(c.text for c in answer.grounding.unsupported)
+        typer.echo(f"\n[grounding] not traceable to tool results: {nums}")
+    if show_tools:
+        for c in answer.tool_calls:
+            typer.echo(f"[tool] {c.name} {c.arguments}{' (error)' if c.is_error else ''}")
+    typer.echo(f"\n{DISCLAIMER}")
+
+
 def main() -> None:  # pragma: no cover
     app()
 

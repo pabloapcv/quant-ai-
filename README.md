@@ -29,6 +29,10 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `docs/signals/` — generated signal cards (`atlas research cards`), one per signal.
 - `atlas/backtest/gates.py` — PRD §8.4 promotion gates; `atlas/models/regime/market.py`
   gives the trend x volatility market regimes the regime gate uses.
+- `atlas/agent/` — the research assistant (Phase 6): Claude (`claude-opus-5-5`) calls the
+  quant engine through 8 tools (views, track records, gates, portfolios, series, regime);
+  a deterministic guard checks every number in the answer against the tool results and
+  gives Claude one repair turn. Needs `ANTHROPIC_API_KEY` or an `ant auth login` profile.
 - `tests/test_leakage.py` — the look-ahead leakage suite (blocking in CI).
 
 ## Quickstart
@@ -50,6 +54,7 @@ uv run atlas research family momentum --universe ind49   # PBO across configs
 uv run atlas research gates --universe ind49             # PRD promotion gates
 uv run atlas views build --universe ctry_dev_lcl         # country views
 uv run atlas research cards --universe ind49             # regenerate docs/signals
+uv run atlas ask "Which developed markets do the models favour, and how reliable is that?"
 uv run atlas snapshot create
 ```
 
