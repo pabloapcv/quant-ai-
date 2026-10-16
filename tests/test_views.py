@@ -208,3 +208,64 @@ def test_json_output_is_strict() -> None:
     assert json.loads(out) == {"a": None, "b": [1.0, None], "c": [2, "2026-01-01"]}
     assert "NaN" not in out
     assert "Infinity" not in out
+
+
+# ------------------------------------------------------------------ walk-forward gating
+def _ic_inputs(n: int = 240, seed: int = 4) -> tuple[np.ndarray, pl.Series, pl.DataFrame]:
+    rng = np.random.default_rng(seed)
+    strong = 0.08 + rng.normal(0, 0.1, n)  # clearly positive IC
+    noise = rng.normal(0, 0.1, n)  # no skill
+    two_regime = np.where(np.arange(n) % 4 < 2, 0.2, -0.1) + rng.normal(0, 0.02, n)  # + in 2 of 4
+    dates = pl.Series("date", [date(2000 + i // 12, i % 12 + 1, 1) for i in range(n)])
+    regimes = pl.DataFrame({"date": dates, "regime": [f"r{i % 4}" for i in range(n)]})
+    return np.column_stack([strong, noise, two_regime]), dates, regimes
+
+
+def test_eligibility_gates() -> None:
+    from atlas.models.expected_returns.ensemble import _eligibility
+
+    ic, dates, regimes = _ic_inputs()
+    assert _eligibility(ic, dates, None, EnsembleConfig()).all()  # no gates -> all eligible
+
+    cfg = EnsembleConfig(gate_tstat=2.0, min_history=60, horizon=3)
+    e = _eligibility(ic, dates, regimes, cfg)
+    assert not e[:60].any()  # not enough history yet
+    assert e[-1, 0]  # strong component eligible
+    assert not e[-1, 1]  # noise component never clears t >= 2 at the end
+    assert e[-1, 2]  # the two-regime component has a positive overall mean
+
+    reg_cfg = EnsembleConfig(gate_tstat=2.0, gate_regimes=3, min_history=60, horizon=3)
+    e2 = _eligibility(ic, dates, regimes, reg_cfg)
+    assert e2[-1, 0]
+    assert not e2[-1, 2]  # positive in only 2 of 4 regimes
+    with pytest.raises(ValueError, match="regimes"):
+        _eligibility(ic, dates, None, reg_cfg)
+
+
+def test_eligibility_is_point_in_time() -> None:
+    from atlas.models.expected_returns.ensemble import _eligibility
+
+    ic, dates, regimes = _ic_inputs()
+    cfg = EnsembleConfig(gate_tstat=2.0, gate_regimes=3, min_history=60, horizon=3, calib_refit=12)
+    base = _eligibility(ic, dates, regimes, cfg)
+    t = 144  # a refit month
+    poisoned = ic.copy()
+    poisoned[t - cfg.horizon + 1 :] = -5.0  # outcomes not yet realized at t
+    assert np.array_equal(_eligibility(poisoned, dates, regimes, cfg)[: t + 1], base[: t + 1])
+
+
+def test_gated_ensemble_only_weights_eligible_components(run_and_ctx) -> None:  # type: ignore[no-untyped-def]
+    from dataclasses import replace
+
+    from atlas.models.regime.market import market_regimes
+
+    _, ctx, path = run_and_ctx
+    gated_ctx = replace(ctx, regimes=None)
+    run = walk_forward(
+        gated_ctx, EnsembleConfig(horizon=3, min_history=36, calib_min_dates=48, gate_tstat=50.0)
+    )
+    assert (run.weights.drop("date").to_numpy() == 0).all()  # impossible bar: nothing qualifies
+    assert run.forecasts["score"].null_count() == run.forecasts.height
+    with pytest.raises(ValueError, match="regimes"):
+        walk_forward(gated_ctx, EnsembleConfig(horizon=3, gate_regimes=3))
+    _ = market_regimes, path

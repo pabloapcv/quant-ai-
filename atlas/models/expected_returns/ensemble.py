@@ -33,6 +33,7 @@ import numpy as np
 import polars as pl
 from sklearn.linear_model import LogisticRegression
 
+from atlas.backtest.metrics import newey_west_tstat
 from atlas.signals.research import ResearchContext, signal_panel
 
 DEFAULT_COMPONENTS = (
@@ -56,6 +57,11 @@ class EnsembleConfig:
     calib_min_dates: int = 60
     conformal_window: int = 120  # months of past residuals
     coverage: float = 0.8  # central interval (p10 / p90)
+    # Walk-forward promotion gates (PRD §8.4). A component may get weight only while its IC
+    # history *up to that date* clears them; re-checked every ``calib_refit`` months.
+    gate_tstat: float | None = None  # Newey-West IC t-stat, e.g. 2.0
+    gate_regimes: int | None = None  # positive mean IC in >= this many market regimes
+    gate_min_regime_obs: int = 12  # months a regime needs before its IC counts
     version: str = "ens_v1"
 
 
@@ -132,6 +138,53 @@ def _past_mean(values: np.ndarray, min_count: int, lag: int = 1) -> np.ndarray:
     return np.asarray(mean, dtype=np.float64)
 
 
+def _eligibility(
+    ic_mat: np.ndarray, dates: pl.Series, regimes: pl.DataFrame | None, cfg: EnsembleConfig
+) -> np.ndarray:
+    """(n_dates x n_components) booleans: may the component get weight at that date?
+
+    Uses only ICs whose outcomes are realized by the date (rows <= t - horizon). Without any
+    gate configured, every component is eligible (weights still need a positive past IC).
+    """
+    n_dates, n_comp = ic_mat.shape
+    if cfg.gate_tstat is None and cfg.gate_regimes is None:
+        return np.ones((n_dates, n_comp), dtype=bool)
+    if cfg.gate_regimes is not None and regimes is None:
+        raise ValueError("the regime gate needs ResearchContext.regimes (market_regimes)")
+    reg_by_date: dict[object, str] = {}
+    if regimes is not None:
+        reg_by_date = dict(zip(regimes["date"].to_list(), regimes["regime"].to_list(), strict=True))
+    reg_labels = np.array([reg_by_date.get(d) for d in dates.to_list()], dtype=object)
+    h = cfg.horizon
+    lags = max(h, 3)  # overlapping h-month outcomes make ICs autocorrelated
+    out = np.zeros((n_dates, n_comp), dtype=bool)
+    current = np.zeros(n_comp, dtype=bool)
+    for t in range(n_dates):
+        if t % cfg.calib_refit == 0:
+            last = t - h + 1
+            current = np.zeros(n_comp, dtype=bool)
+            for j in range(n_comp):
+                past = ic_mat[: max(last, 0), j]
+                ok = np.isfinite(past)
+                if ok.sum() < cfg.min_history:
+                    continue
+                passed = True
+                if cfg.gate_tstat is not None:
+                    passed &= bool(newey_west_tstat(past[ok], lags=lags) >= cfg.gate_tstat)
+                if passed and cfg.gate_regimes is not None:
+                    labels = reg_labels[: max(last, 0)][ok]
+                    vals = past[ok]
+                    positive = 0
+                    for r in set(labels) - {None}:
+                        sel = vals[labels == r]
+                        if sel.size >= cfg.gate_min_regime_obs and sel.mean() > 0:
+                            positive += 1
+                    passed &= positive >= cfg.gate_regimes
+                current[j] = passed
+        out[t] = current
+    return out
+
+
 def walk_forward(ctx: ResearchContext, config: EnsembleConfig | None = None) -> EnsembleRun:
     cfg = config or EnsembleConfig()
     names = component_names(ctx, cfg)
@@ -149,7 +202,8 @@ def walk_forward(ctx: ResearchContext, config: EnsembleConfig | None = None) -> 
     )
     ic_mat = ic.select(zcols).to_numpy().astype(np.float64)
     past_ic = _past_mean(ic_mat, cfg.min_history, lag=h)
-    positive = np.where(np.isfinite(past_ic) & (past_ic > 0), past_ic, 0.0)
+    eligible = _eligibility(ic_mat, dates, ctx.regimes, cfg)
+    positive = np.where(eligible & np.isfinite(past_ic) & (past_ic > 0), past_ic, 0.0)
     n_pos = (positive > 0).sum(axis=1, keepdims=True)
     with np.errstate(invalid="ignore", divide="ignore"):
         ic_w = positive / positive.sum(axis=1, keepdims=True)
