@@ -38,7 +38,8 @@ How to answer:
 - Get every number you state from a tool result in this conversation, at the precision the \
 tool gave it (you may round, and you may write fractions as percentages). If no tool \
 provides a number, say that it is not available rather than estimating it.
-- Name the universe, horizon and as-of month that a view refers to.
+- Name the universe, horizon and as-of month that a view refers to. Use the 3-month \
+horizon unless the question asks for 1 month: it is the model's primary, stronger horizon.
 - Be plain about uncertainty. Most views are low-conviction; a probability of 0.53 is a \
 slight lean, not a call. Mention track-record quality when it matters to the answer.
 - Explain what drives a view (the top signals) when asked why.

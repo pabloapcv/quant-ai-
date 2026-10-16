@@ -10,8 +10,9 @@ import structlog
 def configure_logging(level: str = "INFO", *, json: bool = False) -> None:
     numeric = logging.getLevelNamesMapping()[level.upper()]
     logging.basicConfig(level=numeric, format="%(message)s")
-    # httpx logs full request URLs at INFO, which would include API keys in query strings.
-    for noisy in ("httpx", "httpcore"):
+    # httpx logs full request URLs at INFO, which would include API keys in query strings
+    # (FRED); httpx2 is the Anthropic SDK's HTTP client.
+    for noisy in ("httpx", "httpcore", "httpx2", "httpcore2", "anthropic"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     renderer: structlog.typing.Processor = (
