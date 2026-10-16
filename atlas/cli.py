@@ -627,7 +627,9 @@ def ask(
 
     s = get_settings()
     try:
-        client = anthropic.Anthropic()
+        key = s.anthropic_api_key.get_secret_value() if s.anthropic_api_key else ""
+        # an empty .env entry means "not set": let the SDK fall back to its own resolution
+        client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
         assistant = Assistant(
             client,
             ToolKit(s.data_dir, s.config_dir),

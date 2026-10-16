@@ -301,3 +301,28 @@ async def test_ingest_reports_failures_per_series(router: respx.MockRouter, tmp_
         reports = await ingest_series([CPI], conn, PITStore(tmp_path))
     assert not reports[0].ok
     assert "nope" in (reports[0].error or "")
+
+
+async def test_holiday_rows_posted_early_are_clamped(router: respx.MockRouter) -> None:
+    """FRED fills a holiday with the prior close, posted the trading day before the holiday."""
+    vix = CPI.model_copy(
+        update={
+            "id": "US.VOL.VIX",
+            "source_id": "VIXCLS",
+            "frequency": Frequency.DAILY,
+            "publication_lag_days": 1,
+            "release_time_et": time(23, 59),
+        }
+    )
+    meta = {"seriess": [{**SERIES_META["seriess"][0], "id": "VIXCLS", "frequency_short": "D"}]}
+    rows = [
+        ("2026-07-03", "9999-12-31", "2026-07-02", "16.1"),
+        ("2026-07-03", "9999-12-31", "2026-07-04", "16.1"),  # July 4th, posted on the 3rd
+    ]
+    route(router, "series", meta)
+    route(router, "series/observations", obs(rows))
+    async with fred(router) as conn:
+        df = await conn.fetch(vix, backfill_pre_vintage=False)
+    july4 = df.filter(pl.col("event_time") == date(2026, 7, 4))
+    assert july4["knowledge_time"].item().date() >= date(2026, 7, 4)
+    assert july4["vintage_id"].item() == "2026-07-04"

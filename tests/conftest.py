@@ -48,6 +48,21 @@ def make_obs_frame(
     return conform(pl.DataFrame(data, schema=OBSERVATION_SCHEMA))
 
 
+@pytest.fixture(autouse=True)
+def _no_real_credentials(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """Tests never see the developer's real .env or exported API keys."""
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(tmp_path_factory.getbasetemp() / "no-such.env"))
+    for var in (
+        "ATLAS_FRED_API_KEY",
+        "FRED_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "ATLAS_ANTHROPIC_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
 @pytest.fixture
 def make_obs() -> MakeObs:
     return make_obs_frame

@@ -292,6 +292,15 @@ class FredConnector:
             .cast(pl.Float64)
             .alias("value"),
         )
+        # FRED fills market holidays with the prior close and posts the row on the trading
+        # day *before* the holiday, so its vintage precedes the date it describes. The value
+        # was public, but "the value for day d" cannot be known before d: clamp to the date.
+        early = df.filter(pl.col("vintage_date") < pl.col("event_time")).height
+        if early:
+            log.info("fred.clamped_early_vintages", series=spec.id, rows=early)
+            df = df.with_columns(
+                pl.max_horizontal("vintage_date", "event_time").alias("vintage_date")
+            )
         df = _collapse_unchanged(df).with_columns(pl.lit(False).alias("is_approx_vintage"))
 
         if backfill_pre_vintage and df.height:

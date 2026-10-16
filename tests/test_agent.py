@@ -282,3 +282,41 @@ def test_cli_ask_without_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyP
         assert "ANTHROPIC_API_KEY" in res.output
     finally:
         get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected"), [("sk-ant-test-123", "sk-ant-test-123"), ("", None)]
+)
+def test_cli_ask_reads_key_from_dotenv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_value: str, expected: str | None
+) -> None:
+    import anthropic
+
+    from atlas.cli import app
+    from atlas.settings import get_settings
+
+    seen: dict[str, Any] = {}
+
+    class Capture:
+        def __init__(self, **kwargs: Any) -> None:
+            seen.update(kwargs)
+            self.beta = SimpleNamespace(
+                messages=SimpleNamespace(
+                    create=lambda **_: response("end_turn", text_block("No numbers."))
+                )
+            )
+
+    (tmp_path / ".env").write_text(f"ANTHROPIC_API_KEY={env_value}\n")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(tmp_path / ".env"))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ATLAS_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(anthropic, "Anthropic", Capture)
+    monkeypatch.setenv("ATLAS_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("ATLAS_CONFIG_DIR", str(REPO / "config"))
+    get_settings.cache_clear()
+    try:
+        res = CliRunner().invoke(app, ["ask", "hello"])
+        assert res.exit_code == 0, res.output
+        assert seen.get("api_key") == expected  # empty entry -> SDK's own resolution
+    finally:
+        get_settings.cache_clear()

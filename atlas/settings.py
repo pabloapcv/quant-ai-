@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -24,12 +25,17 @@ class Settings(BaseSettings):
     fred_max_calls_per_minute: int = 100
     http_timeout_s: float = 30.0
 
-    # Assistant (Phase 6). Credentials come from ANTHROPIC_API_KEY or an `ant auth login`
-    # profile, resolved by the Anthropic SDK itself.
+    # Assistant (Phase 6). The key may live in .env like the FRED key; when it is absent the
+    # Anthropic SDK resolves credentials itself (environment, then an `ant auth login` profile).
+    anthropic_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ATLAS_ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"),
+    )
     assistant_model: str = "claude-opus-5-5"
     assistant_effort: str = "medium"
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    # ATLAS_ENV_FILE lets tests (and deployments) point at a different file than ./.env
+    return Settings(_env_file=os.environ.get("ATLAS_ENV_FILE", ".env"))
