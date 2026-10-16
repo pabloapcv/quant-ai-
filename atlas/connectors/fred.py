@@ -99,13 +99,16 @@ class FredConnector:
         retry: RetryPolicy | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         today: date | None = None,
+        since: dict[str, date] | None = None,
     ) -> None:
+        """``since``: per catalog id, fetch only vintages from that date (incremental runs)."""
         if not api_key:
             raise ValueError("FRED api_key is required (set ATLAS_FRED_API_KEY)")
         self._api_key = api_key
         self._raw = raw_store
         self.run_id = run_id or f"run_{datetime.now(UTC):%Y%m%dT%H%M%S}_{uuid.uuid4().hex[:6]}"
         self._today = today
+        self._since = since or {}
         self._http = HttpClient(
             base_url=FRED_BASE_URL,
             max_calls=max_calls_per_minute,
@@ -231,6 +234,14 @@ class FredConnector:
             [{k: r[k] for k in _RAW_COLUMNS} for r in rows], schema=_RAW_COLUMNS, orient="row"
         )
 
+    async def _vintages_from(self, source_id: str, since: date) -> pl.DataFrame:
+        try:
+            return await self._observations_window(source_id, since, REALTIME_MAX)
+        except FredError as exc:
+            if not exc.too_many_vintages:
+                raise
+        return await self._all_vintages(source_id)  # window too wide: fall back to chunking
+
     async def _all_vintages(self, source_id: str) -> pl.DataFrame:
         try:
             return await self._observations_window(source_id, REALTIME_MIN, REALTIME_MAX)
@@ -266,7 +277,13 @@ class FredConnector:
                 fred=info.frequency_short,
             )
 
-        if vintages:
+        since = self._since.get(spec.id)
+        if vintages and since is not None:
+            # Incremental: only vintages published from `since`. History is already stored,
+            # so no pre-vintage backfill (the window start would look like a late release).
+            raw = await self._vintages_from(spec.source_id, since)
+            backfill_pre_vintage = False
+        elif vintages:
             raw = await self._all_vintages(spec.source_id)
         else:
             today = self._today_et()

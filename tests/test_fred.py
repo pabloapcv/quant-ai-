@@ -326,3 +326,31 @@ async def test_holiday_rows_posted_early_are_clamped(router: respx.MockRouter) -
     july4 = df.filter(pl.col("event_time") == date(2026, 7, 4))
     assert july4["knowledge_time"].item().date() >= date(2026, 7, 4)
     assert july4["vintage_id"].item() == "2026-07-04"
+
+
+async def test_incremental_fetch_uses_since_and_skips_backfill(router: respx.MockRouter) -> None:
+    seen: list[dict[str, str]] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(dict(req.url.params))
+        return httpx.Response(200, json=obs(ALFRED_ROWS[-2:]))
+
+    route(router, "series", SERIES_META)
+    route(router, "series/observations", handler)
+    async with fred(router, since={"US.CPI.CORE": date(2021, 4, 10)}) as conn:
+        df = await conn.fetch(CPI)
+    assert seen[0]["realtime_start"] == "2021-04-10"
+    assert seen[0]["realtime_end"] == "9999-12-31"
+    assert not df["is_approx_vintage"].any()  # history already stored: no synthetic rows
+
+
+def test_incremental_since_from_store(tmp_path: Path) -> None:
+    from atlas.pipeline import INCREMENTAL_BUFFER, incremental_since
+    from tests.conftest import make_obs_frame, utc
+
+    store = PITStore(tmp_path)
+    store.write(make_obs_frame([("US.CPI.CORE", date(2026, 8, 1), utc(2026, 9, 11, 12, 30), 1.0)]))
+    since = incremental_since(store, ["US.CPI.CORE", "US.NEW.SERIES"])
+    assert since == {
+        "US.CPI.CORE": date(2026, 9, 11) - INCREMENTAL_BUFFER
+    }  # new series: full fetch

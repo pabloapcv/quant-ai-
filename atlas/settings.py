@@ -11,7 +11,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="ATLAS_", env_file=".env", extra="ignore")
+    # No env_file here: Settings() reads environment variables only, so code (and tests) that
+    # build settings directly never pick up a developer's .env. get_settings() adds the file.
+    model_config = SettingsConfigDict(env_prefix="ATLAS_", extra="ignore")
 
     data_dir: Path = Path("data")
     config_dir: Path = Path("config")

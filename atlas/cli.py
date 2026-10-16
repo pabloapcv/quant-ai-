@@ -46,6 +46,9 @@ portfolio_app = typer.Typer(
     no_args_is_help=True, help="Model portfolio vs equal-weight benchmark (Phase 4)."
 )
 research_app = typer.Typer(no_args_is_help=True, help="Signal research & backtests (Phase 3).")
+pipeline_app = typer.Typer(
+    no_args_is_help=True, help="Scheduled pipelines and the live track record."
+)
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(pit_app, name="pit")
 app.add_typer(snapshot_app, name="snapshot")
@@ -53,6 +56,7 @@ app.add_typer(catalog_app, name="catalog")
 app.add_typer(regime_app, name="regime")
 app.add_typer(views_app, name="views")
 app.add_typer(portfolio_app, name="portfolio")
+app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(research_app, name="research")
 
 
@@ -678,6 +682,50 @@ def ask(
         for c in answer.tool_calls:
             typer.echo(f"[tool] {c.name} {c.arguments}{' (error)' if c.is_error else ''}")
     typer.echo(f"\n{DISCLAIMER}")
+
+
+# ---------------------------------------------------------------------------- pipeline
+@pipeline_app.command("daily")
+def pipeline_daily(
+    skip_ingest: Annotated[bool, typer.Option("--skip-ingest", help="Reuse stored data")] = False,
+) -> None:
+    """Ingest every source, check staleness, snapshot, freeze views, score the live track."""
+    from atlas.pipeline import run_daily
+
+    report = asyncio.run(run_daily(get_settings(), ingest=not skip_ingest))
+    for st in report.steps:
+        typer.echo(f"[{'ok ' if st.ok else 'ERR'}] {st.name:<24} {st.seconds:>6.1f}s  {st.detail}")
+    if report.stale:
+        typer.echo(
+            f"stale: {', '.join(report.stale[:12])}{' ...' if len(report.stale) > 12 else ''}"
+        )
+    raise typer.Exit(code=0 if report.ok else 1)
+
+
+@pipeline_app.command("track")
+def pipeline_track() -> None:
+    """Live paper track record: frozen views scored once their horizon has elapsed."""
+    from atlas.views.track import score_all
+
+    s = get_settings()
+    store = _store()
+    universes = {p.name for p in (s.data_dir / "gold" / "views").glob("*") if p.is_dir()}
+    returns = {
+        u: get_universe(u).build_panel(store).select("date", "asset", "ret")
+        for u in sorted(universes)
+        if u in UNIVERSES
+    }
+    rec = score_all(s.data_dir, returns)
+    for k, v in rec.summary().items():
+        typer.echo(f"{k:<20} {_fmt(v)}")
+    for m in rec.scored:
+        hit = "n/a" if m.hit_rate is None else f"{m.hit_rate:.0%}"
+        typer.echo(
+            f"  {m.universe:<13} {m.horizon} {m.as_of:%Y-%m}  IC {m.rank_ic:+.3f}  "
+            f"calls {m.n_calls} hit {hit}  coverage {m.coverage:.0%}"
+        )
+    for u, h, d in rec.pending:
+        typer.echo(f"  {u:<13} {h} {d:%Y-%m}  pending (outcome not yet realized)")
 
 
 def main() -> None:  # pragma: no cover

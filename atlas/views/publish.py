@@ -13,6 +13,7 @@ import math
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -57,6 +58,7 @@ def build_views(
     *,
     code_sha: str | None = None,
     n_trials: int | None = None,
+    snapshot_id: str | None = None,
     created_at: datetime | None = None,
 ) -> list[View]:
     """Views for one month (default: the latest month with a score)."""
@@ -116,10 +118,24 @@ def build_views(
                     code_sha=code_sha,
                     data_through=month,
                     n_trials=n_trials,
+                    snapshot_id=snapshot_id,
                 ),
             )
         )
     return sorted(views, key=lambda v: -v.score)
+
+
+def _comparable(view: dict[str, Any]) -> dict[str, Any]:
+    """A view's forecast content, without run metadata (when, from which commit/snapshot)."""
+    out = {k: v for k, v in view.items() if k != "created_at"}
+    volatile = {"snapshot_id", "code_sha"}
+    out["provenance"] = {k: v for k, v in view["provenance"].items() if k not in volatile}
+    return out
+
+
+def views_dir(data_dir: Path, universe: str, horizon: str) -> Path:
+    """Frozen views for one universe and horizon: ``gold/views/<universe>/<horizon>/``."""
+    return data_dir / "gold" / "views" / universe / horizon
 
 
 def publish(views: list[View], data_dir: Path, universe: str) -> Path:
@@ -127,12 +143,10 @@ def publish(views: list[View], data_dir: Path, universe: str) -> Path:
     if not views:
         raise ValueError("no views to publish")
     month = views[0].as_of
-    path = data_dir / "gold" / "views" / universe / f"{month.isoformat()}.json"
-    body = [v.model_dump(mode="json", exclude={"created_at"}) for v in views]
+    path = views_dir(data_dir, universe, views[0].horizon) / f"{month.isoformat()}.json"
+    body = [_comparable(v.model_dump(mode="json")) for v in views]
     if path.exists():
-        existing = [
-            {k: v for k, v in e.items() if k != "created_at"} for e in json.loads(path.read_text())
-        ]
+        existing = [_comparable(e) for e in json.loads(path.read_text())]
         if existing == body:
             return path
         raise ViewExistsError(

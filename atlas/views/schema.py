@@ -41,6 +41,7 @@ class Provenance(BaseModel):
     code_sha: str | None
     data_through: date
     n_trials: int | None = None
+    snapshot_id: str | None = None  # data snapshot the view was computed from
 
 
 class View(BaseModel):

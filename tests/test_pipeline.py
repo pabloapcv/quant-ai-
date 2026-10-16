@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+import numpy as np
+import polars as pl
+import pytest
+from typer.testing import CliRunner
+
+from atlas.pipeline import latest_run, run_daily
+from atlas.settings import Settings
+from atlas.views.track import score_all, score_file
+from tests.test_country import _country_store
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def _view(
+    asset: str, score: float, prob: float, stance: str, as_of: str = "2020-01-01"
+) -> dict[str, object]:
+    return {
+        "asset_id": f"COUNTRY.{asset}",
+        "score": score,
+        "prob_outperform": prob,
+        "stance": stance,
+        "horizon": "3M",
+        "as_of": as_of,
+        "expected_excess_return": {"mean": 0.0, "p10": -0.05, "p90": 0.05, "benchmark": "x"},
+    }
+
+
+def _returns(assets: dict[str, float], months: int = 6) -> pl.DataFrame:
+    rows = []
+    for a, r in assets.items():
+        for m in range(months):
+            rows.append({"date": date(2020, m + 1, 1), "asset": a, "ret": r})
+    return pl.DataFrame(rows)
+
+
+def test_score_file_and_pending(tmp_path: Path) -> None:
+    d = tmp_path / "gold" / "views" / "ctry_test" / "3M"
+    d.mkdir(parents=True)
+    f = d / "2020-01-01.json"
+    f.write_text(
+        json.dumps(
+            [
+                _view("AAA", 2.0, 0.6, "overweight"),
+                _view("BBB", 0.0, 0.5, "neutral"),
+                _view("CCC", -2.0, 0.4, "underweight"),
+            ]
+        )
+    )
+    rets = _returns({"AAA": 0.03, "BBB": 0.01, "CCC": -0.02})
+    s = score_file(f, rets)
+    assert s is not None
+    assert s.rank_ic == pytest.approx(1.0)
+    assert s.n_calls == 2
+    assert s.hit_rate == 1.0
+    assert 0 <= s.brier <= 0.25
+    # 3 compounded months: excess vs the mean is +7.1%, +0.9%, -8.0% -> only BBB in [-5%, +5%]
+    assert s.coverage == pytest.approx(1 / 3)
+
+    short = _returns({"AAA": 0.03, "BBB": 0.01, "CCC": -0.02}, months=3)  # only Feb-Mar after Jan
+    assert score_file(f, short) is None  # 3-month outcome not fully realized
+
+    rec = score_all(tmp_path, {"ctry_test": short})
+    assert rec.pending == [("ctry_test", "3M", date(2020, 1, 1))]
+    assert rec.summary() == {"months_scored": 0, "months_pending": 1}
+    rec = score_all(tmp_path, {"ctry_test": rets})
+    assert rec.summary()["months_scored"] == 1
+    assert rec.summary()["hit_rate"] == 1.0
+    assert score_all(tmp_path / "nothing", {}).summary()["months_scored"] == 0
+
+
+async def test_run_daily_without_ingest(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    _country_store(data)
+    settings = Settings(data_dir=data, config_dir=REPO / "config")
+    now = datetime(2026, 10, 16, 22, 0, tzinfo=UTC)
+    rep = await run_daily(
+        settings, ingest=False, views=(("ctry_dev_lcl", 3), ("ind12", 3)), now=now
+    )
+    names = [s.name for s in rep.steps]
+    assert names == [
+        "quality:staleness",
+        "snapshot",
+        "views:ctry_dev_lcl:3M",
+        "views:ind12:3M",
+        "track:score",
+    ]
+    by = {s.name: s for s in rep.steps}
+    assert by["views:ctry_dev_lcl:3M"].ok
+    assert "frozen" in by["views:ctry_dev_lcl:3M"].detail
+    assert not by["views:ind12:3M"].ok  # no industry data: recorded, run continues
+    assert by["track:score"].ok
+    assert rep.snapshot_id
+    assert rep.snapshot_id.startswith("snap_2026-10-16T2200Z")
+    assert not rep.ok
+    run_file = latest_run(data)
+    assert run_file is not None
+    saved = json.loads(run_file.read_text())
+    assert saved["ok"] is False
+    assert "NaN" not in run_file.read_text()
+    frozen = list((data / "gold" / "views" / "ctry_dev_lcl" / "3M").glob("*.json"))
+    assert len(frozen) == 1
+    first = frozen[0].read_text()
+
+    # A second run the same month keeps the first publication byte-for-byte.
+    rep2 = await run_daily(
+        settings,
+        ingest=False,
+        views=(("ctry_dev_lcl", 3),),
+        now=datetime(2026, 10, 17, 22, 0, tzinfo=UTC),
+    )
+    assert {s.name: s.ok for s in rep2.steps}["views:ctry_dev_lcl:3M"]
+    assert frozen[0].read_text() == first
+
+
+async def test_run_daily_skips_fred_without_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import atlas.pipeline as pl_mod
+
+    async def no_network(*_a: object, **_k: object) -> list[object]:
+        return []
+
+    monkeypatch.setattr(pl_mod, "ingest_series", no_network)
+    data = tmp_path / "data"
+    _country_store(data)
+    rep = await run_daily(Settings(data_dir=data, config_dir=REPO / "config"), views=())
+    fred = next(s for s in rep.steps if s.name == "ingest:fred")
+    assert not fred.ok
+    assert "no FRED key" in fred.detail
+    assert {s.name for s in rep.steps} >= {
+        "ingest:kenfrench",
+        "ingest:ecb",
+        "ingest:oecd",
+        "ingest:bis",
+        "ingest:imf",
+    }
+
+
+def test_cli_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from atlas.cli import app
+    from atlas.settings import get_settings
+
+    data = tmp_path / "data"
+    _country_store(data)
+    monkeypatch.setenv("ATLAS_DATA_DIR", str(data))
+    monkeypatch.setenv("ATLAS_CONFIG_DIR", str(REPO / "config"))
+    get_settings.cache_clear()
+    try:
+        runner = CliRunner()
+        res = runner.invoke(app, ["pipeline", "daily", "--skip-ingest"])
+        assert "views:ctry_dev_lcl:3M" in res.output
+        assert res.exit_code == 1  # industry universes have no data in this store
+        res = runner.invoke(app, ["pipeline", "track"])
+        assert res.exit_code == 0, res.output
+        assert "months_pending" in res.output
+    finally:
+        get_settings.cache_clear()
+    _ = np

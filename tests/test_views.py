@@ -186,7 +186,7 @@ def test_cli_views(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         res = runner.invoke(app, ["views", "build", "--universe", "ind12", "--publish"])
         assert res.exit_code == 0, res.output
         assert "published" in res.output
-        assert list((data / "gold" / "views" / "ind12").glob("*.json"))
+        assert list((data / "gold" / "views" / "ind12" / "3M").glob("*.json"))
         res = runner.invoke(
             app, ["views", "build", "--universe", "ind12", "--json", "--horizon", "1"]
         )
@@ -269,3 +269,14 @@ def test_gated_ensemble_only_weights_eligible_components(run_and_ctx) -> None:  
     with pytest.raises(ValueError, match="regimes"):
         walk_forward(gated_ctx, EnsembleConfig(horizon=3, gate_regimes=3))
     _ = market_regimes, path
+
+
+def test_publish_ignores_run_metadata(run_and_ctx, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    run, _, _ = run_and_ctx
+    first = build_views(run, "ind12", code_sha="aaa", snapshot_id="snap_1")
+    path = publish(first, tmp_path, "ind12")
+    again = build_views(
+        run, "ind12", code_sha="bbb", snapshot_id="snap_2"
+    )  # new commit, new snapshot
+    assert publish(again, tmp_path, "ind12") == path  # same forecasts -> no-op
+    assert json.loads(path.read_text())[0]["provenance"]["snapshot_id"] == "snap_1"  # first kept
