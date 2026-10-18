@@ -336,6 +336,6 @@ class ToolKit:
                 "`atlas ingest fred --all`"
             }
         at = date.fromisoformat(as_of) if as_of else datetime.now(UTC).date()
-        rep = RegimeEngine(cube).run(at, with_hmm=False)
+        rep = RegimeEngine(cube).run(at, with_hmm=True)  # second opinion on the quadrant
         out: dict[str, Any] = json.loads(rep.model_dump_json())
         return out

@@ -49,6 +49,7 @@ research_app = typer.Typer(no_args_is_help=True, help="Signal research & backtes
 pipeline_app = typer.Typer(
     no_args_is_help=True, help="Scheduled pipelines and the live track record."
 )
+report_app = typer.Typer(no_args_is_help=True, help="Research reports (Phase 6).")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(pit_app, name="pit")
 app.add_typer(snapshot_app, name="snapshot")
@@ -57,6 +58,7 @@ app.add_typer(regime_app, name="regime")
 app.add_typer(views_app, name="views")
 app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(pipeline_app, name="pipeline")
+app.add_typer(report_app, name="report")
 app.add_typer(research_app, name="research")
 
 
@@ -726,6 +728,44 @@ def pipeline_track() -> None:
         )
     for u, h, d in rec.pending:
         typer.echo(f"  {u:<13} {h} {d:%Y-%m}  pending (outcome not yet realized)")
+
+
+# ---------------------------------------------------------------------------- report
+@report_app.command("weekly")
+def report_weekly(
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Gather facts only; no Claude calls")
+    ] = False,
+    model: Annotated[str | None, typer.Option(help="Claude model id")] = None,
+) -> None:
+    """Weekly research note: engine facts -> Claude writer -> red team -> grounding check."""
+    from atlas.agent.report import Report, ReportWriter, gather_facts, save
+    from atlas.agent.tools import ToolKit
+
+    s = get_settings()
+    reports_dir = s.data_dir / "reports"
+    today = datetime.now(UTC).date()
+    facts = gather_facts(ToolKit(s.data_dir, s.config_dir), today, reports_dir)
+    if dry_run:
+        path = save(Report(as_of=today, facts=facts), reports_dir)
+        typer.echo(f"facts gathered (dry run): {path.parent / 'facts.json'}")
+        return
+
+    import anthropic
+
+    key = s.anthropic_api_key.get_secret_value() if s.anthropic_api_key else ""
+    try:
+        client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+        report = ReportWriter(client, model=model or s.assistant_model).write(facts, today)
+    except anthropic.AuthenticationError:
+        raise typer.BadParameter(
+            "Anthropic credentials missing or invalid: "
+            "set ANTHROPIC_API_KEY or run `ant auth login`"
+        ) from None
+    path = save(report, reports_dir)
+    typer.echo(f"wrote {path}")
+    if report.unsupported:
+        typer.echo(f"[grounding] not traceable to engine facts: {', '.join(report.unsupported)}")
 
 
 def main() -> None:  # pragma: no cover

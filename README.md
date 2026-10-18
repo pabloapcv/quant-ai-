@@ -33,6 +33,9 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   quant engine through 8 tools (views, track records, gates, portfolios, series, regime);
   a deterministic guard checks every number in the answer against the tool results and
   gives Claude one repair turn. Needs `ANTHROPIC_API_KEY` or an `ant auth login` profile.
+- `atlas/agent/report.py` — `atlas report weekly`: engine facts gathered deterministically,
+  a Claude writer and a red-team pass, every number grounding-checked; saved to
+  `data/reports/<date>/` (`--dry-run` gathers facts without calling Claude).
 - `atlas/pipeline.py` — `atlas pipeline daily`: ingest every source, staleness check,
   snapshot, freeze this month's views (write-once), score the live track record. Run it
   daily: snapshot-only sources gain true point-in-time history only from recorded days.
@@ -61,6 +64,7 @@ uv run atlas views build --universe ctry_dev_lcl         # country views
 uv run atlas research cards --universe ind49             # regenerate docs/signals
 uv run atlas ask "Which developed markets do the models favour, and how reliable is that?"
 uv run atlas pipeline daily                 # the whole daily run
+uv run atlas report weekly                  # weekly research note (writer + red team)
 uv run atlas pipeline track                 # live track record of frozen views
 uv run atlas snapshot create
 ```
