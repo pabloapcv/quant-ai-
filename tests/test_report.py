@@ -125,9 +125,11 @@ def test_gather_save_and_previous(tmp_path: Path) -> None:
         "track_records",
         "portfolios",
         "signal_gates",
+        "historical_analogs",
         "changes_since_last_report",
     }
     assert "error" in facts["macro_regime"]  # no FRED data in this store: reported, not raised
+    assert "error" in facts["historical_analogs"]
     assert "largest_tilts" in facts["portfolios"]["ctry_dev_lcl"]
     path = save(Report(as_of=date(2026, 10, 9), facts=facts), reports)
     assert path.exists()

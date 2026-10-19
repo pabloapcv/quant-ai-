@@ -13,7 +13,8 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   point-in-time monthly feature matrix with a bounded ragged-edge fill.
 - `atlas/models/regime/` — growth / inflation / financial-conditions composites,
   growth×inflation quadrant with probabilities, Gaussian HMM (BIC-selected states),
-  12-month recession probit with NBER label lag, and a walk-forward evaluator.
+  12-month recession probit with NBER label lag, a walk-forward evaluator, and historical
+  analog search (k-NN, Mahalanobis on the macro state; PRD §7.6).
 - `atlas/connectors/kenfrench.py` — Ken French data library (FF5 + momentum factors,
   12 and 49 industry portfolios back to 1926), no key needed.
 - `atlas/connectors/sdmx.py` — ECB, OECD, BIS and IMF over SDMX: euro FX and yield curve,
@@ -30,7 +31,8 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `atlas/backtest/gates.py` — PRD §8.4 promotion gates; `atlas/models/regime/market.py`
   gives the trend x volatility market regimes the regime gate uses.
 - `atlas/agent/` — the research assistant (Phase 6): Claude (`claude-opus-5-5`) calls the
-  quant engine through 8 tools (views, track records, gates, portfolios, series, regime);
+  quant engine through 9 tools (views, track records, gates, portfolios, series, regime,
+  historical analogs);
   a deterministic guard checks every number in the answer against the tool results and
   gives Claude one repair turn. Needs `ANTHROPIC_API_KEY` or an `ant auth login` profile.
 - `atlas/agent/report.py` — `atlas report weekly`: engine facts gathered deterministically,
@@ -55,6 +57,7 @@ uv run atlas ingest fred --all          # whole catalog with ALFRED vintages
 uv run atlas regime now
 uv run atlas regime now --at 2008-09-30   # point-in-time: only what was known then
 uv run atlas regime backtest --start 1995-01-01 --out regime_bt.csv
+uv run atlas regime analogs --universe ind12 --k 10   # closest past macro states + what sectors did next
 uv run atlas ingest kenfrench --all     # free, no key
 uv run atlas ingest sdmx                # ECB, OECD, BIS, IMF; free, no keys
 uv run atlas research signal mom_12_1 --universe ind49

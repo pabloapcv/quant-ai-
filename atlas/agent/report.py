@@ -50,7 +50,9 @@ track record is weak.
 RED_TEAM_PROMPT = """You are the red team for the Atlas weekly note. You get the same JSON \
 facts and the draft note. Find the weakest points: claims the facts support only \
 weakly, conviction that is overstated, track records that undercut a call, regime readings \
-that conflict (for example the quadrant vs the HMM), and data that is stale or missing.
+that conflict (for example the quadrant vs the HMM), sector calls that the historical \
+analogs contradict (what sectors did after the closest past macro states; a small sample, \
+so say how many analogs agree), and data that is stale or missing.
 
 Write a section starting with exactly "## Risks and counterpoints": 3 to 6 bullets, each \
 naming the claim and why it may be wrong. Use only numbers from the facts. No preamble."""
@@ -151,6 +153,8 @@ def gather_facts(toolkit: ToolKit, as_of: date, reports_dir: Path) -> dict[str, 
                 for s in g["signals"]
             ]
         facts["signal_gates"][u] = g
+    # US macro analogs vs the US sector views; the red team checks calls against them.
+    facts["historical_analogs"] = get("find_analogs", universe="ind12", as_of="", k=10)
     facts["changes_since_last_report"] = _changes(facts, previous_facts(reports_dir, as_of))
     return facts
 

@@ -307,6 +307,52 @@ def regime_now(
         _print_report(rep)
 
 
+@regime_app.command("analogs")
+def regime_analogs(
+    universe: Annotated[
+        str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl")
+    ] = "ind12",
+    at: Annotated[str | None, typer.Option("--at", help="YYYY-MM-DD; default today")] = None,
+    k: Annotated[int, typer.Option(help="Number of analogs")] = 10,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Past months whose macro state is closest to now, and what each asset did next."""
+    from atlas.agent.tools import ToolKit
+
+    s = get_settings()
+    out = ToolKit(s.data_dir, s.config_dir).find_analogs(universe, at or "", k)
+    if "error" in out:
+        typer.echo(out["error"], err=True)
+        raise typer.Exit(1)
+    if as_json:
+        typer.echo(jsonsafe.dumps(out, indent=2))
+        return
+    state = "  ".join(f"{c}={v:+.2f}" for c, v in out["current_state"].items())
+    typer.echo(f"Macro state {out['current_month']}: {state}\n")
+    typer.echo(
+        f"{'month':<12}{'dist':>6}  {'growth':>7}{'infl':>7}{'fincond':>8}  next 12m best / worst"
+    )
+    for a in out["analogs"]:
+        st, nx = a["state"], a["next_12m"]
+        bw = (
+            f"{nx['best']} {nx['best_excess']:+.1%} / {nx['worst']} {nx['worst_excess']:+.1%}"
+            if nx
+            else "n/a"
+        )
+        typer.echo(
+            f"{a['month']:<12}{a['distance']:>6.2f}  {st['growth']:>+7.2f}{st['inflation']:>+7.2f}"
+            f"{st['financial_conditions']:>+8.2f}  {bw}"
+        )
+    for h, rows in out["forward_excess_by_asset"].items():
+        typer.echo(f"\nForward {h} excess vs equal-weight (mean / median / share positive):")
+        for r in rows:
+            typer.echo(
+                f"  {r['asset']:<28}{r['mean_excess']:>+8.2%}{r['median_excess']:>+8.2%}"
+                f"{r['share_of_analogs_positive']:>7.0%}  (n={r['analogs_counted']})"
+            )
+    typer.echo(f"\n{out['note']}")
+
+
 @regime_app.command("backtest")
 def regime_backtest(
     start: Annotated[str, typer.Option(help="YYYY-MM-DD")] = "1995-01-01",

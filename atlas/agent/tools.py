@@ -22,7 +22,9 @@ from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.models.expected_returns.ensemble import EnsembleConfig, EnsembleRun, walk_forward
 from atlas.models.portfolio.optimizer import PortfolioConfig, backtest_portfolio
-from atlas.models.regime.engine import RegimeEngine
+from atlas.models.regime.analogs import find_analogs as search_analogs
+from atlas.models.regime.analogs import forward_excess, summarize_forward
+from atlas.models.regime.engine import RegimeEngine, data_month_for
 from atlas.models.regime.market import market_regimes
 from atlas.pit.store import PITStore
 from atlas.signals.research import ResearchContext, run_gate_suite
@@ -120,6 +122,23 @@ TOOL_SPECS: list[dict[str, Any]] = [
             ["as_of"],
         ),
     },
+    {
+        "name": "find_analogs",
+        "description": (
+            "Historical analogs: the k past months (since 1971) whose US macro state "
+            "(growth, inflation, financial conditions and their 3-month changes) is closest "
+            "to the as-of month, and what each asset in a universe returned over the next "
+            "3 and 12 months vs the equal-weight average. Descriptive, not a forecast."
+        ),
+        "input_schema": _schema(
+            {
+                "universe": _UNIVERSE,
+                "as_of": {"type": "string", "description": "YYYY-MM-DD; empty for today"},
+                "k": {"type": "integer", "description": "Number of analogs, 3-20"},
+            },
+            ["universe", "as_of", "k"],
+        ),
+    },
 ]
 
 
@@ -139,6 +158,7 @@ class ToolKit:
             "search_catalog": self.search_catalog,
             "get_series": self.get_series,
             "get_regime": self.get_regime,
+            "find_analogs": self.find_analogs,
         }
 
     # ------------------------------------------------------------------ dispatch
@@ -339,3 +359,64 @@ class ToolKit:
         rep = RegimeEngine(cube).run(at, with_hmm=True)  # second opinion on the quadrant
         out: dict[str, Any] = json.loads(rep.model_dump_json())
         return out
+
+    def find_analogs(self, universe: str, as_of: str, k: int) -> dict[str, Any]:
+        cube = self.store.load_cube()
+        if "US.IP" not in cube:
+            return {"error": "analogs need FRED data: run `atlas ingest fred --all`"}
+        at = date.fromisoformat(as_of) if as_of else datetime.now(UTC).date()
+        comps, _ = RegimeEngine(cube).composites(at)
+        res = search_analogs(comps, current_month=data_month_for(at), k=max(3, min(int(k), 20)))
+        if res is None:
+            return {"error": f"no complete macro state for {data_month_for(at)}"}
+        uni = get_universe(universe)
+        panel = uni.build_panel(self.store)
+        months = [a.month for a in res.analogs]
+        forward: dict[str, Any] = {}
+        per_analog: dict[int, dict[date, pl.DataFrame]] = {}
+        for h in (3, 12):
+            ex = forward_excess(panel, months, h)
+            per_analog[h] = {m: ex.filter(pl.col("month") == m) for m in months}
+            forward[f"{h}m"] = [
+                {
+                    "asset": uni.asset_name(r["asset"]),
+                    "mean_excess": round(r["mean"], 4),
+                    "median_excess": round(r["median"], 4),
+                    "share_of_analogs_positive": round(r["hit_rate"], 2),
+                    "analogs_counted": r["n"],
+                }
+                for r in summarize_forward(ex).iter_rows(named=True)
+            ]
+
+        def best_worst(h: int, m: date) -> dict[str, Any]:
+            ex = per_analog[h][m].sort("excess", descending=True)
+            if ex.is_empty():
+                return {}
+            top, bottom = ex.row(0, named=True), ex.row(-1, named=True)
+            return {
+                "best": uni.asset_name(top["asset"]),
+                "best_excess": round(top["excess"], 4),
+                "worst": uni.asset_name(bottom["asset"]),
+                "worst_excess": round(bottom["excess"], 4),
+            }
+
+        return {
+            "universe": universe,
+            "current_month": res.current_month.isoformat(),
+            "current_state": {c: round(v, 2) for c, v in res.current_state.items()},
+            "analogs": [
+                {
+                    "month": a.month.isoformat(),
+                    "distance": round(a.distance, 2),
+                    "state": {c: round(v, 2) for c, v in a.state.items()},
+                    "next_12m": best_worst(12, a.month),
+                }
+                for a in res.analogs
+            ],
+            "forward_excess_by_asset": forward,
+            "note": (
+                "Distance is Mahalanobis on the macro state (lower = closer). Excess returns "
+                "are fractions vs the equal-weight universe average. A small-sample "
+                "description of past episodes, not a backtested forecast or advice."
+            ),
+        }
