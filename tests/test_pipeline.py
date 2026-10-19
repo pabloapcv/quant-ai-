@@ -74,7 +74,8 @@ def test_score_file_and_pending(tmp_path: Path) -> None:
     assert score_all(tmp_path / "nothing", {}).summary()["months_scored"] == 0
 
 
-async def test_run_daily_without_ingest(tmp_path: Path) -> None:
+async def test_run_daily_without_ingest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ATLAS_SLACK_WEBHOOK_URL", raising=False)  # never post from tests
     data = tmp_path / "data"
     _country_store(data)
     settings = Settings(data_dir=data, config_dir=REPO / "config")
@@ -89,8 +90,13 @@ async def test_run_daily_without_ingest(tmp_path: Path) -> None:
         "views:ctry_dev_lcl:3M",
         "views:ind12:3M",
         "track:score",
+        "alerts",
     ]
     by = {s.name: s for s in rep.steps}
+    assert by["alerts"].ok
+    assert [a["rule"] for a in rep.alerts] == ["data_quality"]  # the failed ind12 step
+    assert "views:ind12:3M" in rep.alerts[0]["message"]
+    assert rep.alerts[0]["delivery"] == {}  # no channel configured: log only
     assert by["views:ctry_dev_lcl:3M"].ok
     assert "frozen" in by["views:ctry_dev_lcl:3M"].detail
     assert not by["views:ind12:3M"].ok  # no industry data: recorded, run continues

@@ -31,16 +31,26 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `atlas/backtest/gates.py` — PRD §8.4 promotion gates; `atlas/models/regime/market.py`
   gives the trend x volatility market regimes the regime gate uses.
 - `atlas/agent/` — the research assistant (Phase 6): Claude (`claude-opus-5-5`) calls the
-  quant engine through 9 tools (views, track records, gates, portfolios, series, regime,
-  historical analogs);
+  quant engine through 10 tools (views, track records, gates, portfolios, series, regime,
+  historical analogs, scenarios);
   a deterministic guard checks every number in the answer against the tool results and
   gives Claude one repair turn. Needs `ANTHROPIC_API_KEY` or an `ant auth login` profile.
 - `atlas/agent/report.py` — `atlas report weekly`: engine facts gathered deterministically,
   a Claude writer and a red-team pass, every number grounding-checked; saved to
   `data/reports/<date>/` (`--dry-run` gathers facts without calling Claude).
 - `atlas/pipeline.py` — `atlas pipeline daily`: ingest every source, staleness check,
-  snapshot, freeze this month's views (write-once), score the live track record. Run it
+  snapshot, freeze this month's views (write-once), score the live track, run alerts. Run it
   daily: snapshot-only sources gain true point-in-time history only from recorded days.
+- `atlas/models/scenario.py` — `atlas scenario run --shock us10y=0.5`: same-month asset
+  response to factor shocks (rates, breakeven, Baa credit spread, USD, oil, VIX); unshocked
+  factors move by their conditional expectation; 80% block-bootstrap bands (PRD §7.6).
+- `atlas/alerts.py` — rules in `config/alerts.yaml` (regime-probability crossings, recession
+  > 40%, HY OAS +50bp/week, VIX/VIX3M > 1, view flips, pipeline failures), evaluated at the
+  end of every daily run with cooldown and rate limit. Logged to `data/alerts/`; ntfy and
+  Slack delivery are off until configured (`atlas alerts check` runs them by hand).
+- `atlas/api.py` — `atlas api serve`: read-only FastAPI over the same tools (regime, views,
+  frozen views, track record, portfolio, gates, analogs, scenario, series, alerts,
+  snapshots); OpenAPI docs at `/docs`. Localhost only unless `ATLAS_API_TOKEN` is set.
 - `atlas/views/track.py` — `atlas pipeline track`: frozen views scored once their horizon
   has elapsed (the live paper track, immune to hindsight).
 - `tests/test_leakage.py` — the look-ahead leakage suite (blocking in CI).
@@ -69,6 +79,9 @@ uv run atlas ask "Which developed markets do the models favour, and how reliable
 uv run atlas pipeline daily                 # the whole daily run
 uv run atlas report weekly                  # weekly research note (writer + red team)
 uv run atlas pipeline track                 # live track record of frozen views
+uv run atlas scenario run --shock credit_spread=1 --universe ind12
+uv run atlas alerts check                   # evaluate alert rules now
+uv run atlas api serve                      # http://127.0.0.1:8710/docs
 uv run atlas snapshot create
 ```
 

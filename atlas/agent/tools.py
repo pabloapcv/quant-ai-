@@ -26,6 +26,8 @@ from atlas.models.regime.analogs import find_analogs as search_analogs
 from atlas.models.regime.analogs import forward_excess, summarize_forward
 from atlas.models.regime.engine import RegimeEngine, data_month_for
 from atlas.models.regime.market import market_regimes
+from atlas.models.regime.quadrant import classify_expr
+from atlas.models.scenario import FACTOR_NAMES, FACTORS, factor_changes, fit_scenario_model
 from atlas.pit.store import PITStore
 from atlas.signals.research import ResearchContext, run_gate_suite
 from atlas.signals.universes import UNIVERSES, get_universe
@@ -139,6 +141,36 @@ TOOL_SPECS: list[dict[str, Any]] = [
             ["universe", "as_of", "k"],
         ),
     },
+    {
+        "name": "run_scenario",
+        "description": (
+            "Scenario engine: how each asset in a universe moved, historically, in a month "
+            "with the given factor shocks. Factors not shocked move by their conditional "
+            "expectation (reported). Units: us10y, us2y, breakeven10y, credit_spread in "
+            "percentage points (0.5 = +50bp); usd and oil as fractions (-0.2 = -20%); vix in "
+            "points. Returns excess vs the equal-weight average with an 80% bootstrap range."
+        ),
+        "input_schema": _schema(
+            {
+                "universe": _UNIVERSE,
+                "shocks": {
+                    "type": "array",
+                    "items": _schema(
+                        {
+                            "factor": {"type": "string", "enum": list(FACTOR_NAMES)},
+                            "value": {"type": "number"},
+                        },
+                        ["factor", "value"],
+                    ),
+                },
+                "same_regime": {
+                    "type": "boolean",
+                    "description": "Fit only on months in the current macro quadrant",
+                },
+            },
+            ["universe", "shocks", "same_regime"],
+        ),
+    },
 ]
 
 
@@ -159,6 +191,7 @@ class ToolKit:
             "get_series": self.get_series,
             "get_regime": self.get_regime,
             "find_analogs": self.find_analogs,
+            "run_scenario": self.run_scenario,
         }
 
     # ------------------------------------------------------------------ dispatch
@@ -418,5 +451,55 @@ class ToolKit:
                 "Distance is Mahalanobis on the macro state (lower = closer). Excess returns "
                 "are fractions vs the equal-weight universe average. A small-sample "
                 "description of past episodes, not a backtested forecast or advice."
+            ),
+        }
+
+    def run_scenario(
+        self, universe: str, shocks: list[dict[str, Any]], same_regime: bool
+    ) -> dict[str, Any]:
+        cube = self.store.load_cube()
+        if any(f.series_id not in cube for f in FACTORS):
+            return {"error": "scenario factors need FRED data: run `atlas ingest fred --all`"}
+        today = datetime.now(UTC).date()
+        uni = get_universe(universe)
+        panel = uni.build_panel(self.store)
+        months = None
+        regime = None
+        if same_regime:
+            comps, _ = RegimeEngine(cube).composites(today)
+            quad = comps.select(
+                "event_time", classify_expr(pl.col("growth"), pl.col("inflation")).alias("q")
+            ).drop_nulls()
+            regime = quad["q"][-1]
+            months = quad.filter(pl.col("q") == regime)["event_time"].to_list()
+        model = fit_scenario_model(factor_changes(self.store, today), panel, months=months)
+        res = model.run({sh["factor"]: float(sh["value"]) for sh in shocks})
+
+        def row(a: Any) -> dict[str, Any]:
+            return {
+                "expected": round(a.expected, 4),
+                "range_p10": round(a.p10, 4),
+                "range_p90": round(a.p90, 4),
+            }
+
+        units = {f.name: f.unit for f in FACTORS}
+        return {
+            "universe": universe,
+            "shocks": [{"factor": f, "value": v, "unit": units[f]} for f, v in res.shocks.items()],
+            "implied_moves_of_other_factors": {
+                f: {"value": round(v, 4), "unit": units[f]}
+                for f, v in res.implied_factor_moves.items()
+            },
+            "fit": {
+                "months": res.n_months,
+                "from": res.window[0].isoformat(),
+                "to": res.window[1].isoformat(),
+                "regime_filter": regime,
+            },
+            "equal_weight_average_return": row(res.average),
+            "excess_vs_average": [{"asset": uni.asset_name(a.asset), **row(a)} for a in res.assets],
+            "note": (
+                "Same-month historical response (betas on monthly factor changes), not a "
+                "forecast. Returns are fractions. Not investment advice."
             ),
         }

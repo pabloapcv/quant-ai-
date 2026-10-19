@@ -1,0 +1,40 @@
+# Alert rules (PRD §11.3), evaluated after every daily pipeline run.
+#
+# Every alert is written to data/alerts/<date>.jsonl. External channels are off until you
+# configure them: set ntfy_topic_url, or put a Slack incoming-webhook URL in the env var
+# named by slack_webhook_env (keep it in .env, never in this file).
+cooldown_days: 7   # the same alert (rule + subject + direction) fires at most once per window
+max_per_run: 10    # rate limit; the rest are logged as suppressed
+
+channels:
+  ntfy_topic_url: ""
+  slack_webhook_env: ATLAS_SLACK_WEBHOOK_URL
+
+rules:
+  - name: regime_prob_cross
+    kind: regime_prob_cross
+    thresholds: [0.5, 0.7]       # a quadrant probability crossing either level, either way
+
+  - name: recession_prob
+    kind: recession_prob
+    threshold: 0.40              # 12-month recession probability above 40%
+
+  - name: hy_oas_jump
+    kind: series_change
+    series_id: US.CREDIT.HY.OAS
+    days: 7
+    threshold: 0.50              # pp, i.e. +50bp in a week
+
+  - name: vix_term_inversion
+    kind: ratio
+    numerator: US.VOL.VIX
+    denominator: US.VOL.VIX3M
+    threshold: 1.0               # VIX / VIX3M above 1: front-end stress
+
+  - name: view_flip_3m
+    kind: view_flip
+    horizon: 3
+    include_neutral: false       # only overweight <-> underweight flips
+
+  - name: data_quality
+    kind: pipeline_failure

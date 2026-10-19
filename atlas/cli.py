@@ -50,6 +50,9 @@ pipeline_app = typer.Typer(
     no_args_is_help=True, help="Scheduled pipelines and the live track record."
 )
 report_app = typer.Typer(no_args_is_help=True, help="Research reports (Phase 6).")
+api_app = typer.Typer(no_args_is_help=True, help="HTTP API (PRD §11.1).")
+alerts_app = typer.Typer(no_args_is_help=True, help="Alert rules (config/alerts.yaml).")
+scenario_app = typer.Typer(no_args_is_help=True, help="Scenario engine: factor shocks (PRD §7.6).")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(pit_app, name="pit")
 app.add_typer(snapshot_app, name="snapshot")
@@ -59,6 +62,9 @@ app.add_typer(views_app, name="views")
 app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(report_app, name="report")
+app.add_typer(scenario_app, name="scenario")
+app.add_typer(alerts_app, name="alerts")
+app.add_typer(api_app, name="api")
 app.add_typer(research_app, name="research")
 
 
@@ -350,6 +356,96 @@ def regime_analogs(
                 f"  {r['asset']:<28}{r['mean_excess']:>+8.2%}{r['median_excess']:>+8.2%}"
                 f"{r['share_of_analogs_positive']:>7.0%}  (n={r['analogs_counted']})"
             )
+    typer.echo(f"\n{out['note']}")
+
+
+@api_app.command("serve")
+def api_serve(
+    host: Annotated[str, typer.Option(help="Bind address")] = "127.0.0.1",
+    port: Annotated[int, typer.Option()] = 8710,
+) -> None:
+    """Serve the read-only API (OpenAPI docs at /docs). Set ATLAS_API_TOKEN to expose it."""
+    import uvicorn
+
+    from atlas.api import create_app
+
+    s = get_settings()
+    if host not in {"127.0.0.1", "localhost", "::1"} and s.api_token is None:
+        raise typer.BadParameter("binding beyond localhost needs ATLAS_API_TOKEN set")
+    uvicorn.run(create_app(s), host=host, port=port, log_level="info")
+
+
+@alerts_app.command("check")
+def alerts_check() -> None:
+    """Evaluate every alert rule now and deliver new alerts (the pipeline does this daily)."""
+    from atlas.alerts import run_alerts
+
+    s = get_settings()
+    fired = run_alerts(s.data_dir, s.config_dir)
+    if not fired:
+        typer.echo("no alerts")
+    for a in fired:
+        via = f"  via {', '.join(f'{k}={v}' for k, v in a.delivery.items())}" if a.delivery else ""
+        typer.echo(f"[{a.status:<12}] {a.message}{via}")
+
+
+@scenario_app.command("run")
+def scenario_run(
+    shock: Annotated[
+        list[str],
+        typer.Option(
+            help="factor=value, repeatable. Rates/spreads in pp (us10y=0.5 is +50bp), "
+            "usd/oil as fractions (oil=-0.2), vix in points"
+        ),
+    ],
+    universe: Annotated[
+        str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl")
+    ] = "ind12",
+    same_regime: Annotated[
+        bool, typer.Option("--same-regime", help="Fit on months in the current quadrant only")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Historical same-month response of each asset to the given factor shocks."""
+    from atlas.agent.tools import ToolKit
+
+    shocks = []
+    for item in shock:
+        name, sep, value = item.partition("=")
+        if not sep:
+            raise typer.BadParameter(f"expected factor=value, got {item!r}")
+        try:
+            shocks.append({"factor": name.strip(), "value": float(value)})
+        except ValueError:
+            raise typer.BadParameter(f"not a number: {value!r}") from None
+    s = get_settings()
+    try:
+        out = ToolKit(s.data_dir, s.config_dir).run_scenario(universe, shocks, same_regime)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
+    if "error" in out:
+        typer.echo(out["error"], err=True)
+        raise typer.Exit(1)
+    if as_json:
+        typer.echo(jsonsafe.dumps(out, indent=2))
+        return
+    fit = out["fit"]
+    regime = f", {fit['regime_filter']} months only" if fit["regime_filter"] else ""
+    typer.echo(f"Fit on {fit['months']} months {fit['from']}..{fit['to']}{regime}")
+    typer.echo("Implied moves of unshocked factors:")
+    for f, m in out["implied_moves_of_other_factors"].items():
+        typer.echo(f"  {f:<14}{m['value']:>+9.3f} {m['unit']}")
+    avg = out["equal_weight_average_return"]
+    typer.echo(
+        f"\nEqual-weight average: {avg['expected']:+.2%}  "
+        f"(80%: {avg['range_p10']:+.2%} .. {avg['range_p90']:+.2%})"
+    )
+    typer.echo("Excess vs average:")
+    for r in out["excess_vs_average"]:
+        typer.echo(
+            f"  {r['asset']:<28}{r['expected']:>+8.2%}   "
+            f"({r['range_p10']:+.2%} .. {r['range_p90']:+.2%})"
+        )
     typer.echo(f"\n{out['note']}")
 
 

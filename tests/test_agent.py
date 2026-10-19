@@ -95,6 +95,7 @@ def test_tool_specs_are_strict_ready() -> None:
         "get_regime",
         "list_universes",
         "find_analogs",
+        "run_scenario",
     } == names
     for t in TOOL_SPECS:
         schema = t["input_schema"]

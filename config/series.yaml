@@ -51,9 +51,11 @@ series:
   # ICE BofA series: FRED only distributes a trailing window of daily history (licensing).
   - {id: US.CREDIT.HY.OAS, source: fred, source_id: BAMLH0A0HYM2, frequency: D, publication_lag_days: 1, description: ICE BofA US High Yield OAS, tags: [credit]}
   - {id: US.CREDIT.IG.OAS, source: fred, source_id: BAMLC0A0CM, frequency: D, publication_lag_days: 1, description: ICE BofA US Corporate (IG) OAS, tags: [credit]}
+  - {id: US.CREDIT.BAA10Y, source: fred, source_id: BAA10Y, frequency: D, publication_lag_days: 1, description: "Moody's Baa corporate yield minus 10Y Treasury (long-history credit spread)", tags: [credit]}
   - {id: US.FCI.NFCI, source: fred, source_id: NFCI, frequency: W, publication_lag_days: 6, release_time_et: "08:30", description: Chicago Fed National Financial Conditions Index, tags: [fci]}
   - {id: US.FCI.STLFSI, source: fred, source_id: STLFSI4, frequency: W, publication_lag_days: 7, description: St. Louis Fed Financial Stress Index, tags: [fci]}
   - {id: US.VOL.VIX, source: fred, source_id: VIXCLS, frequency: D, publication_lag_days: 1, description: CBOE VIX close, tags: [volatility]}
+  - {id: US.VOL.VIX3M, source: fred, source_id: VXVCLS, frequency: D, publication_lag_days: 1, description: CBOE S&P 500 3-month volatility index (VIX3M), tags: [volatility]}
 
   # ---------------------------------------------------------------- liquidity, money, dollar, commodities
   - {id: US.FED.ASSETS, source: fred, source_id: WALCL, frequency: W, publication_lag_days: 1, release_time_et: "16:30", description: "Fed total assets (Wednesday level, H.4.1)", tags: [liquidity]}

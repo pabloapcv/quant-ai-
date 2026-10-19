@@ -1,4 +1,4 @@
-"""Daily pipeline (PRD §9): ingest -> quality -> snapshot -> freeze views -> score track.
+"""Daily pipeline (PRD §9): ingest -> quality -> snapshot -> views -> track -> alerts.
 
 Each step runs independently: a failing source is recorded and the run continues, so one
 agency's outage never stops the rest. Every run writes ``data/runs/<timestamp>.json``.
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from atlas import jsonsafe
+from atlas.alerts import run_alerts
 from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.connectors.base import RawStore
@@ -58,6 +59,7 @@ class PipelineReport:
     stale: list[str] = field(default_factory=list)
     snapshot_id: str | None = None
     track: dict[str, Any] = field(default_factory=dict)
+    alerts: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -218,6 +220,15 @@ async def run_daily(
         )
 
     await _timed(report, "track:score", track)
+
+    async def alerts() -> tuple[bool, str]:
+        failed = [st.name for st in report.steps if not st.ok]
+        fired = run_alerts(data_dir, config_dir, failed_steps=failed, now=started)
+        report.alerts = [a.model_dump() for a in fired]
+        sent = sum(a.status == "sent" for a in fired)
+        return True, f"{len(fired)} triggered, {sent} sent"
+
+    await _timed(report, "alerts", alerts)
 
     out = data_dir / "runs" / f"{started:%Y%m%dT%H%M%SZ}.json"
     out.parent.mkdir(parents=True, exist_ok=True)

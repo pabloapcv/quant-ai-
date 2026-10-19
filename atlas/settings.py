@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     assistant_model: str = "claude-opus-5-5"
     assistant_effort: str = "medium"
 
+    # HTTP API (atlas api serve). Unset = localhost only, no auth.
+    api_token: SecretStr | None = None
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
