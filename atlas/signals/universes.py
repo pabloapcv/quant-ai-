@@ -17,6 +17,7 @@ from atlas.signals.country import (
 )
 from atlas.signals.fx import FX_FAMILIES, FX_NAMES, FX_SIGNALS, fx_panel
 from atlas.signals.industry import FAMILIES, SIGNALS, SignalDef, research_panel
+from atlas.signals.rates import RATES_FAMILIES, RATES_NAMES, RATES_SIGNALS, rates_panel
 
 INDUSTRY_COMPONENTS = (
     "mom_12_1",
@@ -112,6 +113,16 @@ UNIVERSES: dict[str, Universe] = {
         FX_NAMES,
         "fx",
         "FX",
+    ),
+    "rates_dev": Universe(
+        "rates_dev",
+        "9 developed-market 10-year government bonds, hedged, excess over cash (OECD)",
+        rates_panel,
+        RATES_SIGNALS,
+        RATES_FAMILIES,
+        RATES_NAMES,
+        "rates",
+        "RATES",
     ),
 }
 

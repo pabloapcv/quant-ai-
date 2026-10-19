@@ -55,6 +55,11 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   reversal signals through the same gates, views, portfolio and live track. Carry is the one
   strong signal (IC t 3.7, positive in 4 of 4 regimes); the ensemble's probabilities are not
   yet informative (Brier at 0.25).
+- `atlas/signals/rates.py` — 9 developed-market 10-year government bonds (`rates_dev`),
+  hedged, excess over cash, returns from yields (duration 8): term-spread carry, momentum,
+  yield value and growth-slowdown signals. Carry is again the strongest (IC t 2.9) but the
+  ensemble shows no skill yet (walk-forward IC t 1.4, portfolio IR -0.11); views are frozen
+  daily so the live track judges it.
 - `atlas/text/` — central-bank text (PRD §6.6): FOMC statements and minutes from
   federalreserve.gov (2006 onward; `atlas text sync`, daily in the pipeline), stored point in
   time; BM25 passage search (`atlas text search`), statement-to-statement changes
