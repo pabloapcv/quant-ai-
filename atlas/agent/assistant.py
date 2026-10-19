@@ -35,7 +35,8 @@ SYSTEM_PROMPT = """You are Atlas, a quantitative research assistant. You answer 
 about markets using the Atlas quant engine, which you reach through tools: model views on \
 US industries and country equity markets, their walk-forward track records, promotion-gate \
 results for each signal, model portfolios, point-in-time data series, the macro regime, \
-historical macro analogs and a factor-shock scenario engine.
+historical macro analogs, a factor-shock scenario engine, and FOMC statements and minutes \
+(search and statement-to-statement changes).
 
 How to answer:
 - Get every number you state from a tool result in this conversation, at the precision the \

@@ -50,6 +50,7 @@ pipeline_app = typer.Typer(
     no_args_is_help=True, help="Scheduled pipelines and the live track record."
 )
 report_app = typer.Typer(no_args_is_help=True, help="Research reports (Phase 6).")
+text_app = typer.Typer(no_args_is_help=True, help="Central-bank text: FOMC statements, minutes.")
 nowcast_app = typer.Typer(no_args_is_help=True, help="GDP nowcast research vs GDPNow.")
 eval_app = typer.Typer(no_args_is_help=True, help="Assistant evaluation harness (PRD §10.5).")
 api_app = typer.Typer(no_args_is_help=True, help="HTTP API (PRD §11.1).")
@@ -69,6 +70,7 @@ app.add_typer(alerts_app, name="alerts")
 app.add_typer(api_app, name="api")
 app.add_typer(eval_app, name="eval")
 app.add_typer(nowcast_app, name="nowcast")
+app.add_typer(text_app, name="text")
 app.add_typer(research_app, name="research")
 
 
@@ -363,6 +365,89 @@ def regime_analogs(
     typer.echo(f"\n{out['note']}")
 
 
+@text_app.command("sync")
+def text_sync(
+    limit: Annotated[int | None, typer.Option(help="At most N new documents")] = None,
+) -> None:
+    """Fetch FOMC statements and minutes not stored yet (1 request/second)."""
+    from atlas.text.fed import FedTextConnector
+
+    async def go() -> dict[str, Any]:
+        async with FedTextConnector(get_settings().data_dir) as conn:
+            return await conn.sync(limit=limit)
+
+    out = asyncio.run(go())
+    typer.echo(f"{out['new']} new, {out['skipped']} skipped of {out['releases']} releases")
+    for f in out["failed"][:10]:
+        typer.echo(f"  failed: {f}")
+
+
+@text_app.command("search")
+def text_search(
+    query: str,
+    kind: Annotated[str, typer.Option(help="any | statement | minutes")] = "any",
+    as_of: Annotated[str, typer.Option("--as-of", help="YYYY-MM-DD")] = "",
+    k: Annotated[int, typer.Option()] = 6,
+) -> None:
+    """Keyword search over stored FOMC documents (point in time)."""
+    from atlas.agent.tools import ToolKit
+
+    s = get_settings()
+    out = ToolKit(s.data_dir, s.config_dir).search_documents(query, kind, as_of, k)
+    if "error" in out:
+        typer.echo(out["error"], err=True)
+        raise typer.Exit(1)
+    for h in out["passages"]:
+        typer.echo(f"[{h['relevance']:5.1f}] {h['kind']:<9} {h['meeting_date']}  {h['url']}")
+        typer.echo(f"        {h['text'][:300]}")
+
+
+@text_app.command("show")
+def text_show(date_: Annotated[str, typer.Option("--date", help="YYYY-MM-DD")] = "") -> None:
+    """The FOMC statement in force at a date, with what changed since the previous one."""
+    from atlas.agent.tools import ToolKit
+
+    s = get_settings()
+    out = ToolKit(s.data_dir, s.config_dir).get_fomc_statement(date_)
+    if "error" in out:
+        typer.echo(out["error"], err=True)
+        raise typer.Exit(1)
+    typer.echo(f"FOMC statement {out['meeting_date']}  {out['url']}")
+    if out["extracted_reading"]:
+        typer.echo(f"reading: {out['extracted_reading']}")
+    ch = out["changes_since_previous"] or {"added": [], "removed": []}
+    typer.echo(f"\nsince {out['previous_meeting_date']}:")
+    for line in ch["removed"]:
+        typer.echo(f"  - {line}")
+    for line in ch["added"]:
+        typer.echo(f"  + {line}")
+
+
+@text_app.command("tone")
+def text_tone(
+    limit: Annotated[int | None, typer.Option(help="At most N statements")] = None,
+) -> None:
+    """Extract action / stance from statements without a reading yet (Claude Haiku, metered)."""
+    from atlas.agent.usage import BudgetExceeded, make_client
+    from atlas.text.tone import run_tone
+
+    s = get_settings()
+    try:
+        out = run_tone(
+            s.data_dir,
+            make_client(s, "extract"),
+            limit=limit,
+            on_done=lambda t: typer.echo(
+                f"{t.doc_id}: {t.action} {t.change_bp:+d}bp stance {t.stance:+d}"
+                f"{'' if t.consistent else '  (size disagrees with text)'}"
+            ),
+        )
+    except BudgetExceeded as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from None
+    typer.echo(out)
+
+
 @nowcast_app.command("evaluate")
 def nowcast_evaluate(
     start: Annotated[str, typer.Option(help="First quarter, e.g. 2012Q1")] = "2012Q1",
@@ -467,6 +552,8 @@ def eval_run(
         )
 
     run = run_eval(assistant.ask, judge, cases, model=assistant.model, on_result=show)
+    if run.stopped_early:
+        typer.echo(f"\n{run.stopped_early}", err=True)
     folder = s.data_dir / "evals"
     path = run.save(folder)
     summ = run.summary()
@@ -476,6 +563,9 @@ def eval_run(
     typer.echo(f"saved {path}")
     baseline = folder / "baseline.json"
     code = 0
+    if run.stopped_early:
+        typer.echo("run incomplete: not compared with the baseline and not saved as one")
+        raise typer.Exit(code=1)
     if baseline.exists() and not set_baseline:
         cmp = compare(run, EvalRun.model_validate_json(baseline.read_text()))
         typer.echo(f"vs baseline: {cmp}")

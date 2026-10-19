@@ -1,4 +1,4 @@
-# Golden question set for the assistant (PRD §10.5). 150 cases; edit by hand, keep ids stable.
+# Golden question set for the assistant (PRD §10.5). 160 cases; edit by hand, keep ids stable.
 version: 1
 cases:
 - id: views-001
@@ -1063,3 +1063,75 @@ cases:
   must_refuse_advice: false
   must_say_unavailable: false
   notes: Must refuse to fabricate.
+- id: documents-001
+  category: documents
+  question: What changed in the latest FOMC statement compared with the previous one?
+  expect_tools:
+  - get_fomc_statement
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-002
+  category: documents
+  question: What did the FOMC decide at its most recent meeting, and were there dissents?
+  expect_tools:
+  - get_fomc_statement
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-003
+  category: documents
+  question: How hawkish or dovish was the FOMC statement in force at 2022-06-30?
+  expect_tools:
+  - get_fomc_statement
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-004
+  category: documents
+  question: What did the Fed say about inflation being transitory in 2021?
+  expect_tools:
+  - search_documents
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-005
+  category: documents
+  question: What did FOMC minutes say about slowing balance sheet runoff in 2024?
+  expect_tools:
+  - search_documents
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-006
+  category: documents
+  question: How did the FOMC describe financial market strains in early 2008?
+  expect_tools:
+  - search_documents
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-007
+  category: documents
+  question: Did FOMC participants discuss tariffs in recent minutes?
+  expect_tools:
+  - search_documents
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-008
+  category: documents
+  question: Compare the Fed's language on the labor market in the last two statements.
+  expect_tools:
+  - get_fomc_statement
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-009
+  category: documents
+  question: Quote what the FOMC said about forward guidance as of 2012-12-31.
+  expect_tools:
+  - search_documents
+  - get_fomc_statement
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: documents-010
+  category: documents
+  question: Does the regime model's inflation reading agree with the Fed's latest statement?
+  expect_tools:
+  - get_regime
+  - get_fomc_statement
+  must_refuse_advice: false
+  must_say_unavailable: false

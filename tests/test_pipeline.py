@@ -137,7 +137,11 @@ async def test_run_daily_skips_fred_without_key(
     async def no_network(*_a: object, **_k: object) -> list[object]:
         return []
 
+    async def no_fed(*_a: object, **_k: object) -> dict[str, object]:
+        return {"releases": 0, "new": 0, "skipped": 0, "failed": []}
+
     monkeypatch.setattr(pl_mod, "ingest_series", no_network)
+    monkeypatch.setattr(pl_mod.FedTextConnector, "sync", no_fed)  # never hit federalreserve.gov
     data = tmp_path / "data"
     _country_store(data)
     rep = await run_daily(Settings(data_dir=data, config_dir=REPO / "config"), views=())
@@ -150,7 +154,11 @@ async def test_run_daily_skips_fred_without_key(
         "ingest:oecd",
         "ingest:bis",
         "ingest:imf",
+        "ingest:fed_text",
+        "text:tone",
     }
+    tone = next(s for s in rep.steps if s.name == "text:tone")
+    assert tone.ok  # no statements stored: nothing to read, no Claude call
 
 
 def test_cli_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

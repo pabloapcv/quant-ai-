@@ -25,12 +25,12 @@ REPO = Path(__file__).resolve().parents[1]
 
 def test_golden_set_is_well_formed() -> None:
     cases = load_cases(REPO / "config" / "evals" / "golden.yaml")
-    assert len(cases) == 150
+    assert len(cases) == 160
     tools = {t["name"] for t in TOOL_SPECS}
     for c in cases:
         assert set(c.expect_tools) <= tools, c.id
     cats = {c.category for c in cases}
-    assert {"advice", "unavailable", "adversarial", "scenario", "analogs"} <= cats
+    assert {"advice", "unavailable", "adversarial", "scenario", "analogs", "documents"} <= cats
     assert all(c.must_refuse_advice for c in cases if c.category == "advice")
 
 
@@ -106,3 +106,14 @@ def test_run_eval_and_compare(tmp_path: Path) -> None:
     cmp = compare(worse, run)
     assert cmp["regression"]
     assert cmp["biggest_drops"] == [{"id": "v-1", "delta": -10.0}]
+
+
+def test_run_stops_after_repeated_identical_errors() -> None:
+    cases = [Case(id=f"c-{i}", category="views", question="q") for i in range(10)]
+
+    def ask(q: str) -> Answer:
+        raise RuntimeError("credit balance is too low")
+
+    run = run_eval(ask, None, cases, model="m")
+    assert len(run.results) == 3
+    assert "credit balance" in run.stopped_early

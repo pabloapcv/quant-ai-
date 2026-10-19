@@ -1,4 +1,4 @@
-"""Daily pipeline (PRD §9): ingest -> quality -> snapshot -> views -> track -> alerts.
+"""Daily pipeline (PRD §9): ingest -> text -> quality -> snapshot -> views -> track -> alerts.
 
 Each step runs independently: a failing source is recorded and the run continues, so one
 agency's outage never stops the rest. Every run writes ``data/runs/<timestamp>.json``.
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from atlas import jsonsafe
+from atlas.agent.usage import BudgetExceeded, make_client
 from atlas.alerts import run_alerts
 from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
@@ -35,6 +36,8 @@ from atlas.quality.drift import backtest_ic_stats, feature_psi
 from atlas.settings import Settings
 from atlas.signals.research import ResearchContext
 from atlas.signals.universes import get_universe
+from atlas.text.fed import FedTextConnector
+from atlas.text.tone import run_tone
 from atlas.views.publish import ViewExistsError, build_views, publish, views_dir
 from atlas.views.track import TrackRecord, score_all
 
@@ -148,7 +151,16 @@ async def run_daily(
                 )
             return _summarize(reports)
 
+        async def fed_text() -> tuple[bool, str]:
+            async with FedTextConnector(data_dir) as conn:
+                out = await conn.sync()
+            detail = f"{out['new']} new documents"
+            if out["failed"]:
+                detail += f"; failed: {', '.join(out['failed'][:3])}"
+            return not out["failed"], detail
+
         await _timed(report, "ingest:fred", fred)
+        await _timed(report, "ingest:fed_text", fed_text)
         await _timed(report, "ingest:kenfrench", kenfrench)
         for agency in sorted(AGENCIES):
 
@@ -162,6 +174,19 @@ async def run_daily(
             await _timed(report, f"ingest:{agency}", sdmx)
 
     store = PITStore(data_dir)
+
+    if ingest:
+
+        async def tone() -> tuple[bool, str]:
+            try:
+                out = run_tone(data_dir, make_client(settings, "extract"))
+            except BudgetExceeded as exc:
+                return False, str(exc)
+            except Exception as exc:  # no Anthropic credentials: skip, data still flows
+                return True, f"skipped: {type(exc).__name__}"
+            return out["failed"] == 0, f"{out['extracted']} statements read"
+
+        await _timed(report, "text:tone", tone)
 
     async def quality() -> tuple[bool, str]:
         stale = find_stale(

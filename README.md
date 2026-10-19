@@ -31,8 +31,8 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `atlas/backtest/gates.py` — PRD §8.4 promotion gates; `atlas/models/regime/market.py`
   gives the trend x volatility market regimes the regime gate uses.
 - `atlas/agent/` — the research assistant (Phase 6): Claude (`claude-opus-5-5`) calls the
-  quant engine through 10 tools (views, track records, gates, portfolios, series, regime,
-  historical analogs, scenarios);
+  quant engine through 12 tools (views, track records, gates, portfolios, series, regime,
+  historical analogs, scenarios, FOMC document search and statements);
   a deterministic guard checks every number in the answer against the tool results and
   gives Claude one repair turn. Needs `ANTHROPIC_API_KEY` or an `ant auth login` profile.
 - `atlas/agent/report.py` — `atlas report weekly`: engine facts gathered deterministically,
@@ -44,12 +44,18 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `atlas/agent/usage.py` — LLM cost controls (PRD §10.6): every Claude call is metered to
   `data/usage/<date>.jsonl`; a daily budget (`ATLAS_LLM_DAILY_TOKEN_BUDGET`, weighted tokens)
   is a hard stop; system prompt, tools and the tool loop use prompt caching. `atlas usage`.
-- `atlas/agent/evals.py` — `atlas eval run`: the 150-question golden set
+- `atlas/agent/evals.py` — `atlas eval run`: the 160-question golden set
   (`config/evals/golden.yaml`: views, drivers, track record, gates, portfolio, regime, series,
-  analogs, scenarios, unavailable, advice, adversarial) scored 0-100 on grounding (30), tool
+  analogs, scenarios, documents, unavailable, advice, adversarial) scored 0-100 on grounding (30), tool
   choice (20) and an Opus judge rubric (50); fails on a > 3-point drop vs
   `data/evals/baseline.json` (`--set-baseline`). Every case calls Claude: filter with
   `--category`, `--ids` or `--limit` for cheap checks.
+- `atlas/text/` — central-bank text (PRD §6.6): FOMC statements and minutes from
+  federalreserve.gov (2006 onward; `atlas text sync`, daily in the pipeline), stored point in
+  time; BM25 passage search (`atlas text search`), statement-to-statement changes
+  (`atlas text show`), and a Claude Haiku reading of each statement (action, size, stance -2..+2,
+  dissents; size checked against the text; `atlas text tone`). Tools: `search_documents`,
+  `get_fomc_statement`.
 - `atlas/models/nowcast.py` — GDP nowcast research: mixed-frequency DFM + bridge on 15
   monthly series, evaluated in real time vs GDPNow (`atlas nowcast evaluate`). It does not
   beat a constant forecast (RMSE 1.6 vs GDPNow 0.86 one hour before the advance release,

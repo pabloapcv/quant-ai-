@@ -30,6 +30,7 @@ from atlas import jsonsafe
 from atlas.agent.assistant import FALLBACK_BETA, Answer
 
 REGRESSION_POINTS = 3.0
+STOP_AFTER_ERRORS = 3  # e.g. exhausted credits or bad credentials: stop instead of failing all
 WEIGHTS = {"grounding": 30.0, "tools": 20.0, "judge": 50.0}
 JUDGE_MAX = {"correctness": 4, "calibration": 2, "policy": 2, "clarity": 2}
 TOOL_RESULT_CHARS = 6000
@@ -102,6 +103,7 @@ class EvalRun(BaseModel):
     model: str
     judge_model: str
     results: list[CaseResult]
+    stopped_early: str = ""
 
     def summary(self) -> dict[str, Any]:
         def stats(rs: Sequence[CaseResult]) -> dict[str, Any]:
@@ -207,7 +209,13 @@ def run_eval(
         judge_model=judge.model if judge else "",
         results=[],
     )
+    last_errors: list[str] = []
     for case in cases:
+        if len(last_errors) >= STOP_AFTER_ERRORS and len(set(last_errors)) == 1:
+            run.stopped_early = (
+                f"stopped after {STOP_AFTER_ERRORS} identical errors: {last_errors[0]}"
+            )
+            break
         try:
             answer = ask(case.question)
             judgement = judge.grade(case, answer) if judge else None
@@ -227,6 +235,7 @@ def run_eval(
                 error=f"{type(exc).__name__}: {exc}",
             )
         run.results.append(res)
+        last_errors = [*last_errors[-(STOP_AFTER_ERRORS - 1) :], res.error] if res.error else []
         if on_result:
             on_result(res)
     return run

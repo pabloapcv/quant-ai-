@@ -32,6 +32,9 @@ from atlas.models.scenario import FACTOR_NAMES, FACTORS, factor_changes, fit_sce
 from atlas.pit.store import PITStore
 from atlas.signals.research import ResearchContext, run_gate_suite
 from atlas.signals.universes import UNIVERSES, get_universe
+from atlas.text.documents import DocStore, statement_changes
+from atlas.text.search import BM25Index
+from atlas.text.tone import load_tones
 from atlas.views.publish import build_views, evaluate
 
 UNIVERSE_ENUM = sorted(UNIVERSES)
@@ -173,6 +176,35 @@ TOOL_SPECS: list[dict[str, Any]] = [
             ["universe", "shocks", "same_regime"],
         ),
     },
+    {
+        "name": "search_documents",
+        "description": (
+            "Search FOMC statements and minutes (federalreserve.gov, 2006 onward) for passages "
+            "matching a query, as published by the as-of date. Returns the best passages with "
+            "document, meeting date and link. Use it for what the Fed said, not for numbers."
+        ),
+        "input_schema": _schema(
+            {
+                "query": {"type": "string"},
+                "kind": {"type": "string", "enum": ["any", "statement", "minutes"]},
+                "as_of": {"type": "string", "description": "YYYY-MM-DD; empty for today"},
+                "k": {"type": "integer", "description": "Passages to return, 1-12"},
+            },
+            ["query", "kind", "as_of", "k"],
+        ),
+    },
+    {
+        "name": "get_fomc_statement",
+        "description": (
+            "The FOMC statement in force at a date (the latest released on or before it): "
+            "full text, the sentences added and removed since the previous statement, and an "
+            "extracted reading (action, size, hawkish/dovish stance -2..+2, dissents)."
+        ),
+        "input_schema": _schema(
+            {"date": {"type": "string", "description": "YYYY-MM-DD; empty for the latest"}},
+            ["date"],
+        ),
+    },
 ]
 
 
@@ -194,7 +226,10 @@ class ToolKit:
             "get_regime": self.get_regime,
             "find_analogs": self.find_analogs,
             "run_scenario": self.run_scenario,
+            "search_documents": self.search_documents,
+            "get_fomc_statement": self.get_fomc_statement,
         }
+        self._text_index: BM25Index | None = None
 
     # ------------------------------------------------------------------ dispatch
     def call(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
@@ -507,4 +542,63 @@ class ToolKit:
                 "Same-month historical response (betas on monthly factor changes), not a "
                 "forecast. Returns are fractions. Not investment advice."
             ),
+        }
+
+    def _as_of_end(self, value: str) -> datetime:
+        if not value:
+            return datetime.now(UTC)
+        d = date.fromisoformat(value)
+        return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=UTC)
+
+    def search_documents(self, query: str, kind: str, as_of: str, k: int) -> dict[str, Any]:
+        if self._text_index is None:
+            docs = list(DocStore(self.data_dir).iter(source="fomc"))
+            if not docs:
+                return {"error": "no documents stored: run `atlas text sync`"}
+            self._text_index = BM25Index(docs)
+        hits = self._text_index.search(
+            query,
+            k=max(1, min(int(k), 12)),
+            as_of=self._as_of_end(as_of),
+            kind=None if kind == "any" else kind,
+        )
+        return {
+            "query": query,
+            "as_of": as_of or "latest",
+            "passages": [
+                {
+                    "document": h.passage.doc.doc_id,
+                    "kind": h.passage.doc.kind,
+                    "meeting_date": h.passage.doc.meeting_date.isoformat(),
+                    "published": h.passage.doc.published_at.date().isoformat(),
+                    "url": h.passage.doc.url,
+                    "text": h.passage.text[:900],
+                    "relevance": round(h.score, 2),
+                }
+                for h in hits
+            ],
+            "note": "Keyword (BM25) search. Quote the Fed's words; numbers in passages are "
+            "the Fed's, as of publication.",
+        }
+
+    def get_fomc_statement(self, date: str) -> dict[str, Any]:
+        docs = list(
+            DocStore(self.data_dir).iter(
+                source="fomc", kind="statement", as_of=self._as_of_end(date)
+            )
+        )
+        if not docs:
+            return {"error": f"no FOMC statement stored on or before {date or 'today'}"}
+        cur, prev = docs[-1], (docs[-2] if len(docs) > 1 else None)
+        tone = load_tones(self.data_dir).get(cur.doc_id)
+        return {
+            "meeting_date": cur.meeting_date.isoformat(),
+            "published": cur.published_at.isoformat(),
+            "url": cur.url,
+            "text": cur.paragraphs,
+            "previous_meeting_date": prev.meeting_date.isoformat() if prev else None,
+            "changes_since_previous": statement_changes(prev, cur) if prev else None,
+            "extracted_reading": None
+            if tone is None
+            else tone.model_dump(exclude={"doc_id", "model", "text_change_bp"}),
         }
