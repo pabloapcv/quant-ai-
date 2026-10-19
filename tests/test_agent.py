@@ -40,6 +40,7 @@ TOOL_OUT = [
         "Data through 2026-08-01, over 677 months.",
         "Underweights lagged by 1.23%.",  # sign carried by the words
         "Positive in 3 of 4 regimes using 12-1 momentum (mom_12_1) over 3 months.",
+        "A move of 91bp in percentage-point terms.",  # 0.9128 pp -> 91 bp
         "No numbers here at all.",
     ],
 )

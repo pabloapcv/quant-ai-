@@ -273,6 +273,7 @@ class ToolKit:
                 }
                 for v in views
             ],
+            "range_coverage": 0.8,  # range_p10..range_p90 is an 80% interval
             "note": "Returns are fractions (0.012 = 1.2%) over the horizon. Not investment advice.",
         }
 
@@ -496,6 +497,7 @@ class ToolKit:
                 "to": res.window[1].isoformat(),
                 "regime_filter": regime,
             },
+            "range_coverage": 0.8,  # range_p10..range_p90 is an 80% bootstrap band
             "equal_weight_average_return": row(res.average),
             "excess_vs_average": [{"asset": uni.asset_name(a.asset), **row(a)} for a in res.assets],
             "note": (

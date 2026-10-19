@@ -41,6 +41,12 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `atlas/pipeline.py` — `atlas pipeline daily`: ingest every source, staleness check,
   snapshot, freeze this month's views (write-once), score the live track, run alerts. Run it
   daily: snapshot-only sources gain true point-in-time history only from recorded days.
+- `atlas/agent/evals.py` — `atlas eval run`: the 150-question golden set
+  (`config/evals/golden.yaml`: views, drivers, track record, gates, portfolio, regime, series,
+  analogs, scenarios, unavailable, advice, adversarial) scored 0-100 on grounding (30), tool
+  choice (20) and an Opus judge rubric (50); fails on a > 3-point drop vs
+  `data/evals/baseline.json` (`--set-baseline`). Every case calls Claude: filter with
+  `--category`, `--ids` or `--limit` for cheap checks.
 - `atlas/models/scenario.py` — `atlas scenario run --shock us10y=0.5`: same-month asset
   response to factor shocks (rates, breakeven, Baa credit spread, USD, oil, VIX); unshocked
   factors move by their conditional expectation; 80% block-bootstrap bands (PRD §7.6).
@@ -82,6 +88,7 @@ uv run atlas pipeline track                 # live track record of frozen views
 uv run atlas scenario run --shock credit_spread=1 --universe ind12
 uv run atlas alerts check                   # evaluate alert rules now
 uv run atlas api serve                      # http://127.0.0.1:8710/docs
+uv run atlas eval run --category advice     # assistant eval on a slice of the golden set
 uv run atlas snapshot create
 ```
 

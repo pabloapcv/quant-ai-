@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import asdict
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import polars as pl
 import typer
@@ -50,6 +50,7 @@ pipeline_app = typer.Typer(
     no_args_is_help=True, help="Scheduled pipelines and the live track record."
 )
 report_app = typer.Typer(no_args_is_help=True, help="Research reports (Phase 6).")
+eval_app = typer.Typer(no_args_is_help=True, help="Assistant evaluation harness (PRD §10.5).")
 api_app = typer.Typer(no_args_is_help=True, help="HTTP API (PRD §11.1).")
 alerts_app = typer.Typer(no_args_is_help=True, help="Alert rules (config/alerts.yaml).")
 scenario_app = typer.Typer(no_args_is_help=True, help="Scenario engine: factor shocks (PRD §7.6).")
@@ -65,6 +66,7 @@ app.add_typer(report_app, name="report")
 app.add_typer(scenario_app, name="scenario")
 app.add_typer(alerts_app, name="alerts")
 app.add_typer(api_app, name="api")
+app.add_typer(eval_app, name="eval")
 app.add_typer(research_app, name="research")
 
 
@@ -357,6 +359,80 @@ def regime_analogs(
                 f"{r['share_of_analogs_positive']:>7.0%}  (n={r['analogs_counted']})"
             )
     typer.echo(f"\n{out['note']}")
+
+
+@eval_app.command("run")
+def eval_run(
+    category: Annotated[
+        list[str] | None, typer.Option(help="Only these categories (repeatable)")
+    ] = None,
+    ids: Annotated[str | None, typer.Option(help="Comma-separated case ids")] = None,
+    limit: Annotated[int | None, typer.Option(help="At most N cases (after filters)")] = None,
+    model: Annotated[str | None, typer.Option(help="Assistant model id")] = None,
+    judge_model: Annotated[str, typer.Option(help="Judge model id")] = "claude-opus-5-5",
+    no_judge: Annotated[bool, typer.Option("--no-judge", help="Deterministic scores only")] = False,
+    set_baseline: Annotated[
+        bool, typer.Option("--set-baseline", help="Save this run as the baseline")
+    ] = False,
+) -> None:
+    """Ask golden questions, score grounding / tool use / judge rubric, compare to baseline.
+
+    Calls Claude for every case (and the judge): a full 150-case run costs real tokens.
+    Exits 1 when the score falls more than 3 points below the baseline on shared cases.
+    """
+    import anthropic
+
+    from atlas.agent.assistant import Assistant
+    from atlas.agent.evals import EvalRun, Judge, compare, load_cases, run_eval
+    from atlas.agent.tools import ToolKit
+
+    s = get_settings()
+    cases = load_cases(s.config_dir / "evals" / "golden.yaml")
+    if category:
+        cases = [c for c in cases if c.category in set(category)]
+    if ids:
+        wanted = {i.strip() for i in ids.split(",")}
+        cases = [c for c in cases if c.id in wanted]
+    cases = cases[:limit] if limit else cases
+    if not cases:
+        raise typer.BadParameter("no cases match the filters")
+    key = s.anthropic_api_key.get_secret_value() if s.anthropic_api_key else ""
+    client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+    assistant = Assistant(
+        client,
+        ToolKit(s.data_dir, s.config_dir),
+        model=model or s.assistant_model,
+        effort=s.assistant_effort,
+    )
+    judge = None if no_judge else Judge(client, model=judge_model)
+
+    def show(r: Any) -> None:
+        j = r.judgement
+        extra = f"  judge {j.share:.0%}: {j.rationale[:90]}" if j else ""
+        err = f"  ERROR {r.error}" if r.error else ""
+        typer.echo(
+            f"{r.id:<16}{r.score:>6.1f}  grounded {r.grounded_share:.0%}  "
+            f"tools {'ok' if r.tools_ok else 'MISS'}{extra}{err}"
+        )
+
+    run = run_eval(assistant.ask, judge, cases, model=assistant.model, on_result=show)
+    folder = s.data_dir / "evals"
+    path = run.save(folder)
+    summ = run.summary()
+    typer.echo(f"\noverall {summ['overall']}")
+    for c, st in summ["by_category"].items():
+        typer.echo(f"  {c:<12} {st}")
+    typer.echo(f"saved {path}")
+    baseline = folder / "baseline.json"
+    code = 0
+    if baseline.exists() and not set_baseline:
+        cmp = compare(run, EvalRun.model_validate_json(baseline.read_text()))
+        typer.echo(f"vs baseline: {cmp}")
+        code = 1 if cmp["regression"] else 0
+    if set_baseline:
+        baseline.write_text(path.read_text())
+        typer.echo(f"baseline set to {path.name}")
+    raise typer.Exit(code=code)
 
 
 @api_app.command("serve")

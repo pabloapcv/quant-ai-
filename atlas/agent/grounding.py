@@ -2,7 +2,8 @@
 
 Every number in the assistant's answer must match a value returned by a tool in the same
 conversation, at the precision the answer displays it. A tool's fraction ``0.0647`` supports
-``0.065``, ``6.5%`` and ``6.47%``; a value of ``12.81`` supports ``12.8``. Anything else is
+``0.065``, ``6.5%`` and ``6.47%``; a value of ``12.81`` supports ``12.8``; a
+percentage-point value ``0.69`` supports ``69bp``. Anything else is
 reported as unsupported.
 
 Not treated as claims (they carry no model output):
@@ -106,7 +107,7 @@ def _matches(claim: Claim, t: float) -> bool:
     if claim.unit in ("%", "pp"):
         candidates.append(t * 100)
     elif claim.unit == "bp":
-        candidates.append(t * 1e4)
+        candidates += [t * 1e4, t * 100]  # from a fraction, or from percentage points
     else:
         candidates.append(t * 100)  # "6.5" written for a 0.065 fraction without a % sign
     return any(abs(abs(c) - abs(claim.value)) <= tol for c in candidates)

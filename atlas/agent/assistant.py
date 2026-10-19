@@ -32,7 +32,8 @@ DISCLAIMER = (
 SYSTEM_PROMPT = """You are Atlas, a quantitative research assistant. You answer questions \
 about markets using the Atlas quant engine, which you reach through tools: model views on \
 US industries and country equity markets, their walk-forward track records, promotion-gate \
-results for each signal, model portfolios, point-in-time data series and the macro regime.
+results for each signal, model portfolios, point-in-time data series, the macro regime, \
+historical macro analogs and a factor-shock scenario engine.
 
 How to answer:
 - Get every number you state from a tool result in this conversation, at the precision the \
@@ -52,7 +53,8 @@ Do not include internal or system XML tags in your response."""
 REPAIR_PROMPT = (
     "These numbers in your answer do not match any tool result in this conversation: {nums}. "
     "Revise the answer: use tool results for every number (call tools if needed), or remove "
-    "numbers you cannot support. Reply with the full revised answer only."
+    "numbers you cannot support. Reply with the full revised answer only, written for the user "
+    "as if it were your first answer: do not mention this check, a revision or 'flagged' figures."
 )
 
 
@@ -67,6 +69,7 @@ class ToolCall:
 class Answer:
     text: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    tool_results: list[str] = field(default_factory=list)  # JSON text, same order as calls
     grounding: GroundingReport = field(default_factory=GroundingReport)
     repaired: bool = False
     stop_reason: str = ""
@@ -123,6 +126,7 @@ class Assistant:
                 return Answer(
                     text="The request was declined by the model's safety system.",
                     tool_calls=calls,
+                    tool_results=results,
                     stop_reason=stop,
                     model=getattr(response, "model", ""),
                 )
@@ -153,6 +157,7 @@ class Assistant:
                 return Answer(
                     text=text,
                     tool_calls=calls,
+                    tool_results=results,
                     grounding=report,
                     repaired=repaired,
                     stop_reason=stop,
@@ -171,6 +176,7 @@ class Assistant:
         return Answer(
             text=text or "No complete answer within the step limit.",
             tool_calls=calls,
+            tool_results=results,
             grounding=check(text, results),
             repaired=repaired,
             stop_reason=getattr(response, "stop_reason", "") or "step_limit",
