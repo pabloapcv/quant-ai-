@@ -21,6 +21,7 @@ from atlas import jsonsafe
 from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.models.expected_returns.ensemble import EnsembleConfig, EnsembleRun, walk_forward
+from atlas.models.nowcast import gdp_nowcast
 from atlas.models.portfolio.optimizer import PortfolioConfig, backtest_portfolio
 from atlas.models.regime.analogs import find_analogs as search_analogs
 from atlas.models.regime.analogs import forward_excess, summarize_forward
@@ -117,7 +118,8 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "name": "get_regime",
         "description": (
             "US macro regime as of a date: growth/inflation/financial-conditions scores, "
-            "quadrant probabilities and 12-month recession probability. Needs FRED data."
+            "quadrant probabilities, 12-month recession probability, and the current-quarter "
+            "real GDP nowcast (Atlanta Fed GDPNow, as known at the date). Needs FRED data."
         ),
         "input_schema": _schema(
             {"as_of": {"type": "string", "description": "YYYY-MM-DD; empty for today"}},
@@ -392,6 +394,7 @@ class ToolKit:
         at = date.fromisoformat(as_of) if as_of else datetime.now(UTC).date()
         rep = RegimeEngine(cube).run(at, with_hmm=True)  # second opinion on the quadrant
         out: dict[str, Any] = json.loads(rep.model_dump_json())
+        out["gdp_nowcast"] = gdp_nowcast(cube, at)
         return out
 
     def find_analogs(self, universe: str, as_of: str, k: int) -> dict[str, Any]:

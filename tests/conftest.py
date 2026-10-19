@@ -59,6 +59,8 @@ def _no_real_credentials(
         "FRED_API_KEY",
         "ANTHROPIC_API_KEY",
         "ATLAS_ANTHROPIC_API_KEY",
+        "ATLAS_SLACK_WEBHOOK_URL",
+        "ATLAS_API_TOKEN",
     ):
         monkeypatch.delenv(var, raising=False)
 

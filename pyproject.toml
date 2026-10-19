@@ -81,7 +81,7 @@ follow_imports = "skip"
 follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
-module = ["aiolimiter.*", "zstandard.*", "pandera.*", "respx.*", "hmmlearn.*", "statsmodels.*", "scipy.*", "sklearn.*"]
+module = ["aiolimiter.*", "zstandard.*", "pandera.*", "respx.*", "hmmlearn.*", "statsmodels.*", "scipy.*", "sklearn.*", "pandas.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

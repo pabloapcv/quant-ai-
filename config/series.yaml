@@ -13,6 +13,17 @@
 series:
   # ---------------------------------------------------------------- growth
   - {id: US.GDP.REAL, source: fred, source_id: GDPC1, frequency: Q, publication_lag_days: 32, release_time_et: "08:30", description: Real GDP, tags: [growth]}
+  - {id: US.GDP.NOWCAST.ATL, source: fred, source_id: GDPNOW, frequency: Q, publication_lag_days: 0, description: "Atlanta Fed GDPNow real GDP nowcast, % SAAR (benchmark for atlas nowcast)", tags: [growth, nowcast]}
+  - {id: US.PCE.REAL, source: fred, source_id: PCEC96, frequency: M, publication_lag_days: 30, release_time_et: "08:30", description: Real personal consumption expenditures, tags: [growth, nowcast]}
+  - {id: US.INCOME.REAL.EXTRANS, source: fred, source_id: W875RX1, frequency: M, publication_lag_days: 30, release_time_et: "08:30", description: Real personal income excluding current transfer receipts, tags: [growth, nowcast]}
+  - {id: US.SALES.MFGTRADE.REAL, source: fred, source_id: CMRMTSPL, frequency: M, publication_lag_days: 60, description: Real manufacturing and trade industries sales, tags: [growth, nowcast]}
+  - {id: US.CONSTRUCTION.TOTAL, source: fred, source_id: TTLCONS, frequency: M, publication_lag_days: 31, description: "Total construction spending (nominal)", tags: [growth, nowcast]}
+  - {id: US.TRADE.EXPORTS, source: fred, source_id: BOPTEXP, frequency: M, publication_lag_days: 35, description: "Exports of goods and services, BOP basis (nominal)", tags: [growth, nowcast]}
+  - {id: US.TRADE.IMPORTS, source: fred, source_id: BOPTIMP, frequency: M, publication_lag_days: 35, description: "Imports of goods and services, BOP basis (nominal)", tags: [growth, nowcast]}
+  - {id: US.TRADE.BALANCE, source: fred, source_id: BOPGSTB, frequency: M, publication_lag_days: 35, description: "Trade balance, goods and services, BOP basis (nominal)", tags: [growth, nowcast]}
+  - {id: US.CAPEX.SHIPMENTS.CORE, source: fred, source_id: ANXAVS, frequency: M, publication_lag_days: 33, description: "Shipments of nondefense capital goods excluding aircraft", tags: [growth, nowcast]}
+  - {id: US.LABOR.HOURS.AGG, source: fred, source_id: AWHI, frequency: M, publication_lag_days: 5, description: "Aggregate weekly hours index, production and nonsupervisory employees", tags: [growth, nowcast]}
+  - {id: US.INVENTORIES.REAL, source: fred, source_id: INVCMRMTSPL, frequency: M, publication_lag_days: 60, description: "Real manufacturing and trade inventories", tags: [growth, nowcast]}
   - {id: US.IP, source: fred, source_id: INDPRO, frequency: M, publication_lag_days: 18, release_time_et: "09:15", description: Industrial production index, tags: [growth]}
   - {id: US.RETAIL, source: fred, source_id: RSAFS, frequency: M, publication_lag_days: 17, release_time_et: "08:30", description: Retail and food services sales, tags: [growth, consumer]}
   - {id: US.HOUSING.STARTS, source: fred, source_id: HOUST, frequency: M, publication_lag_days: 20, release_time_et: "08:30", description: Housing starts, tags: [growth, housing]}

@@ -50,6 +50,7 @@ pipeline_app = typer.Typer(
     no_args_is_help=True, help="Scheduled pipelines and the live track record."
 )
 report_app = typer.Typer(no_args_is_help=True, help="Research reports (Phase 6).")
+nowcast_app = typer.Typer(no_args_is_help=True, help="GDP nowcast research vs GDPNow.")
 eval_app = typer.Typer(no_args_is_help=True, help="Assistant evaluation harness (PRD §10.5).")
 api_app = typer.Typer(no_args_is_help=True, help="HTTP API (PRD §11.1).")
 alerts_app = typer.Typer(no_args_is_help=True, help="Alert rules (config/alerts.yaml).")
@@ -67,6 +68,7 @@ app.add_typer(scenario_app, name="scenario")
 app.add_typer(alerts_app, name="alerts")
 app.add_typer(api_app, name="api")
 app.add_typer(eval_app, name="eval")
+app.add_typer(nowcast_app, name="nowcast")
 app.add_typer(research_app, name="research")
 
 
@@ -359,6 +361,33 @@ def regime_analogs(
                 f"{r['share_of_analogs_positive']:>7.0%}  (n={r['analogs_counted']})"
             )
     typer.echo(f"\n{out['note']}")
+
+
+@nowcast_app.command("evaluate")
+def nowcast_evaluate(
+    start: Annotated[str, typer.Option(help="First quarter, e.g. 2012Q1")] = "2012Q1",
+    end: Annotated[str, typer.Option(help="Last quarter")] = "2025Q4",
+    days: Annotated[list[int] | None, typer.Option(help="Days before release (repeatable)")] = None,
+    out: Annotated[str | None, typer.Option(help="Write per-quarter rows to this CSV")] = None,
+) -> None:
+    """Real-time DFM + bridge nowcasts vs GDPNow vs the BEA advance estimate (research)."""
+    import pandas as pd
+
+    from atlas.models import nowcast as nc
+
+    cube = _store().load_cube(list(nc.SERIES_IDS))
+    quarters = list(pd.period_range(start, end, freq="Q"))
+    df = nc.evaluate(cube, quarters, days_before=days or [60, 30, 1], log=True)
+    if df.is_empty():
+        raise typer.BadParameter("no quarters with an advance release in range")
+    covid = ["2020Q1", "2020Q2", "2020Q3", "2020Q4"]
+    typer.echo("\nRMSE vs advance estimate (% SAAR), all quarters:")
+    typer.echo(nc.rmse_summary(df))
+    typer.echo("excluding 2020:")
+    typer.echo(nc.rmse_summary(df, exclude=covid))
+    if out:
+        df.write_csv(out)
+        typer.echo(f"wrote {out}")
 
 
 @app.command("usage")

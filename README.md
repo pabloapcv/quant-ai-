@@ -50,6 +50,11 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   choice (20) and an Opus judge rubric (50); fails on a > 3-point drop vs
   `data/evals/baseline.json` (`--set-baseline`). Every case calls Claude: filter with
   `--category`, `--ids` or `--limit` for cheap checks.
+- `atlas/models/nowcast.py` — GDP nowcast research: mixed-frequency DFM + bridge on 15
+  monthly series, evaluated in real time vs GDPNow (`atlas nowcast evaluate`). It does not
+  beat a constant forecast (RMSE 1.6 vs GDPNow 0.86 one hour before the advance release,
+  2012-2025 ex-2020), so Atlas reports GDPNow (point in time) as its nowcast in the regime
+  tool; the Phase 2 "within 10% of GDPNow" criterion is not met. Details in the docstring.
 - `atlas/models/scenario.py` — `atlas scenario run --shock us10y=0.5`: same-month asset
   response to factor shocks (rates, breakeven, Baa credit spread, USD, oil, VIX); unshocked
   factors move by their conditional expectation; 80% block-bootstrap bands (PRD §7.6).
