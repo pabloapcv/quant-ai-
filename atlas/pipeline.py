@@ -157,7 +157,9 @@ async def run_daily(
 
     async def quality() -> tuple[bool, str]:
         stale = find_stale(
-            store.last_knowledge_times(), [(s.id, s.frequency) for s in cat], started
+            store.last_knowledge_times(),
+            [(s.id, s.frequency, s.publication_lag_days) for s in cat],
+            started,
         )
         report.stale = sorted(s.series_id for s in stale)
         # staleness is a warning, not a failure: monthly data legitimately pauses

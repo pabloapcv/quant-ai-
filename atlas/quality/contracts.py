@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -82,15 +82,22 @@ class StaleSeries:
 
 
 def find_stale(
-    last_known: dict[str, datetime | None],
-    frequencies: Iterable[tuple[str, Frequency]],
+    last_known: Mapping[str, datetime | None],
+    frequencies: Iterable[tuple[str, Frequency] | tuple[str, Frequency, int]],
     now: datetime,
 ) -> list[StaleSeries]:
-    """Series whose most recent release is older than their frequency allows."""
+    """Series whose most recent release is older than their frequency allows.
+
+    An optional third element is the series' publication lag in days, added to the limit:
+    a daily series the source publishes weekly (e.g. the Fed's broad dollar index) is not
+    stale over a weekend.
+    """
     stale = []
-    for series_id, freq in frequencies:
+    for entry in frequencies:
+        series_id, freq = entry[0], entry[1]
+        lag = entry[2] if len(entry) == 3 else 0
         last = last_known.get(series_id)
-        limit = MAX_STALENESS[freq]
+        limit = MAX_STALENESS[freq] + timedelta(days=lag)
         if last is None or now - last > limit:
             stale.append(StaleSeries(series_id, last, limit))
     return stale

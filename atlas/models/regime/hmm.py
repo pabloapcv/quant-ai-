@@ -94,4 +94,37 @@ def fit_regime_hmm(
             )
         )
     states.sort(key=lambda s: -s.means.get("growth", 0.0))
-    return HMMResult(n_states=model.n_components, n_obs=int(x.shape[0]), bic=bic, states=states)
+    return HMMResult(
+        n_states=model.n_components, n_obs=int(x.shape[0]), bic=bic, states=_disambiguate(states)
+    )
+
+
+def _disambiguate(states: list[HMMState]) -> list[HMMState]:
+    """Give states that share a label a qualifier from the dimension where they differ most.
+
+    Two "stagflation+stress" states become "..., higher inflation" and "..., lower inflation";
+    three or more get "... (1 of 3 by inflation)" ordered from highest to lowest.
+    """
+    groups: dict[str, list[int]] = {}
+    for i, st in enumerate(states):
+        groups.setdefault(st.label, []).append(i)
+    out = list(states)
+    for label, idx in groups.items():
+        if len(idx) < 2:
+            continue
+        dims = list(states[idx[0]].means)
+        spread = {
+            d: max(states[i].means[d] for i in idx) - min(states[i].means[d] for i in idx)
+            for d in dims
+        }
+        dim = max(spread, key=lambda d: spread[d])
+        name = dim.replace("_", " ")
+        ranked = sorted(idx, key=lambda i: -states[i].means[dim])
+        for pos, i in enumerate(ranked):
+            if len(ranked) == 2:
+                tag = f"{'higher' if pos == 0 else 'lower'} {name}"
+                new = f"{label}, {tag}"
+            else:
+                new = f"{label} ({pos + 1} of {len(ranked)} by {name})"
+            out[i] = states[i].model_copy(update={"label": new})
+    return out

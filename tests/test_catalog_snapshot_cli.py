@@ -121,3 +121,10 @@ def test_cli_catalog_and_pit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         assert res.exit_code != 0
     finally:
         get_settings.cache_clear()
+
+
+def test_find_stale_allows_publication_lag() -> None:
+    now = datetime(2026, 10, 19, tzinfo=UTC)
+    last = {"USD": now - timedelta(days=9)}  # daily series, published weekly
+    assert [s.series_id for s in find_stale(last, [("USD", Frequency.DAILY)], now)] == ["USD"]
+    assert find_stale(last, [("USD", Frequency.DAILY, 7)], now) == []

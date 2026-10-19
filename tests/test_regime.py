@@ -330,3 +330,35 @@ def test_cube_latest_knowledge(synthetic_obs: pl.DataFrame) -> None:
     assert "US.NOPE" not in cube
     assert cube.as_of("US.NOPE", date(2020, 1, 1)).is_empty()
     _ = timedelta
+
+
+def test_hmm_duplicate_labels_are_disambiguated() -> None:
+    from atlas.models.regime.hmm import HMMState, _disambiguate
+
+    def st(label: str, g: float, i: float, f: float) -> HMMState:
+        return HMMState(
+            label=label,
+            prob=0.25,
+            means={"growth": g, "inflation": i, "financial_conditions": f},
+            persistence=0.9,
+        )
+
+    two = _disambiguate(
+        [
+            st("stagflation+stress", -0.6, 1.4, 1.6),
+            st("stagflation+stress", -1.0, 0.2, 0.6),
+            st("goldilocks", 0.5, -0.5, -0.3),
+        ]
+    )
+    assert [s.label for s in two] == [
+        "stagflation+stress, higher inflation",
+        "stagflation+stress, lower inflation",
+        "goldilocks",
+    ]
+    three = _disambiguate([st("x", 0, 1, 0), st("x", 0, 3, 0), st("x", 0, 2, 0)])
+    assert [s.label for s in three] == [
+        "x (3 of 3 by inflation)",
+        "x (1 of 3 by inflation)",
+        "x (2 of 3 by inflation)",
+    ]
+    assert len({s.label for s in three}) == 3

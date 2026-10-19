@@ -237,7 +237,10 @@ def pit_status() -> None:
     last = store.last_knowledge_times()
     cat = _catalog()
     stale = {
-        s.series_id for s in find_stale(last, [(s.id, s.frequency) for s in cat], datetime.now(UTC))
+        s.series_id
+        for s in find_stale(
+            last, [(s.id, s.frequency, s.publication_lag_days) for s in cat], datetime.now(UTC)
+        )
     }
     for spec in cat:
         mark = "STALE" if spec.id in stale else "ok"
