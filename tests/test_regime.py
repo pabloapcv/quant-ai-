@@ -8,6 +8,7 @@ import polars as pl
 import pytest
 from typer.testing import CliRunner
 
+from atlas.features.macro import RECESSION
 from atlas.features.registry import FeatureSpec, Pillar
 from atlas.models.regime.composites import composite, contributions
 from atlas.models.regime.engine import RegimeEngine, data_month_for
@@ -128,6 +129,61 @@ def test_recession_probit_respects_label_lag() -> None:
     assert none is None
 
 
+def _collinear_case() -> tuple[pl.DataFrame, pl.DataFrame, list[date]]:
+    """A true driver ``a`` plus a near-copy ``b`` that the data load with the wrong sign."""
+    n = 480
+    ev = [date(1980 + i // 12, i % 12 + 1, 1) for i in range(n)]
+    rng = np.random.default_rng(3)
+    a = np.zeros(n)
+    for t in range(1, n):  # persistent, like a labour-market gauge
+        a[t] = 0.95 * a[t - 1] + rng.normal(0, 0.3)
+    b = a + rng.normal(0, 0.3, n)
+    latent = 2.5 * a - 1.5 * b + rng.normal(0, 0.3, n)
+    rec = np.zeros(n)
+    rec[1:] = (latent[:-1] > 0.8).astype(float)
+    feats = pl.DataFrame({"event_time": ev, "a": a, "b": b})
+    return feats, pl.DataFrame({"event_time": ev, "value": rec}), ev
+
+
+def test_recession_probit_drops_wrong_signed_input() -> None:
+    feats, recession, ev = _collinear_case()
+    free = fit_recession_probit(feats, recession, ["a", "b"], current_month=ev[-1])
+    assert free is not None
+    assert free.coefficients["b"] < 0 < free.coefficients["a"]  # the collinear sign flip
+    assert free.dropped == []
+
+    signed = fit_recession_probit(
+        feats, recession, ["a", "b"], current_month=ev[-1], expected_signs={"a": 1, "b": 1}
+    )
+    assert signed is not None
+    assert signed.dropped == ["b"]
+    assert set(signed.coefficients) == {"const", "a"}
+    assert signed.coefficients["a"] > 0
+    assert set(signed.inputs) == {"a", "b"}  # still reported, just not used
+    assert signed.train_end == free.train_end  # label-lag discipline unchanged
+    assert 0.0 <= signed.prob_12m <= 1.0
+
+    # Columns without an expected sign are left unrestricted.
+    partial = fit_recession_probit(
+        feats, recession, ["a", "b"], current_month=ev[-1], expected_signs={"a": 1}
+    )
+    assert partial is not None
+    assert partial.coefficients == free.coefficients
+
+
+def test_recession_probit_none_when_every_input_is_wrong_signed() -> None:
+    feats, recession, ev = _collinear_case()
+    res = fit_recession_probit(
+        feats, recession, ["a"], current_month=ev[-1], expected_signs={"a": -1}
+    )
+    assert res is None
+
+
+def test_recession_feature_expected_signs() -> None:
+    signs = {s.name: s.sign for s in RECESSION}
+    assert signs == {"curve_10y3m": -1, "sahm": 1, "nfci_level": 1, "unrate_12m_chg_pp": 1}
+
+
 def test_hmm_finds_separated_states() -> None:
     rng = np.random.default_rng(1)
     calm = rng.normal([1.0, -0.5, -0.5], 0.2, size=(150, 3))
@@ -165,7 +221,17 @@ def test_engine_full_report(engine: RegimeEngine) -> None:
     assert sum(s.prob for s in rep.hmm.states) == pytest.approx(1.0)
     assert rep.recession is not None
     assert rep.recession.train_end <= date(2013, 5, 1)
+    assert rep.recession.dropped == []  # unconstrained by default
     assert rep.model_dump_json()  # serializable for the API / LLM layer
+
+
+def test_engine_sign_constraint_is_opt_in(synthetic_obs: pl.DataFrame) -> None:
+    constrained = RegimeEngine(VintageCube(synthetic_obs), recession_sign_constraint=True)
+    rep = constrained.run(date(2015, 6, 30), with_hmm=False)
+    assert rep.recession is not None
+    signs = {s.name: s.sign for s in RECESSION}
+    for name, coef in rep.recession.coefficients.items():
+        assert name == "const" or signs[name] * coef > 0
 
 
 def test_engine_is_point_in_time(synthetic_obs: pl.DataFrame) -> None:

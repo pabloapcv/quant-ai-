@@ -75,9 +75,12 @@ class RegimeEngine:
         include_approx: bool = True,
         min_features: int = 3,
         ffill_limit: int = 3,
+        recession_sign_constraint: bool = False,
     ) -> None:
         self.cube = cube
         self.include_approx = include_approx
+        # Off by default: see atlas.models.regime.recession ("Why the Sahm weight is negative").
+        self.recession_sign_constraint = recession_sign_constraint
         self.min_features = min_features
         self.ffill_limit = ffill_limit
 
@@ -176,10 +179,18 @@ class RegimeEngine:
             .group_by("event_time")
             .agg(pl.col("value").max())
         )
-        cols = [s.name for s in RECESSION if s.name in features.columns]
-        if not cols:
+        specs = [s for s in RECESSION if s.name in features.columns]
+        if not specs:
             return None
-        return fit_recession_probit(features, rec_monthly, cols, current_month=end)
+        return fit_recession_probit(
+            features,
+            rec_monthly,
+            [s.name for s in specs],
+            current_month=end,
+            expected_signs={s.name: s.sign for s in specs}
+            if self.recession_sign_constraint
+            else None,
+        )
 
 
 def _uncertainty(history: pl.Series | None, contrib: dict[str, float]) -> float:

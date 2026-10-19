@@ -110,9 +110,17 @@ FINANCIAL = (
     ),
 )
 
+# For the recession probit, ``sign`` is the economically expected sign of the coefficient:
+# an inverted curve, a triggered Sahm rule, rising unemployment and tight financial
+# conditions all raise recession odds. Inputs fitted against their sign are dropped.
 RECESSION = (
     FeatureSpec(
-        "curve_10y3m", "US.CURVE.10Y3M", Pillar.RECESSION, (), description="10Y-3M spread, pp"
+        "curve_10y3m",
+        "US.CURVE.10Y3M",
+        Pillar.RECESSION,
+        (),
+        sign=-1,
+        description="10Y-3M spread, pp",
     ),
     FeatureSpec(
         "sahm",

@@ -27,7 +27,7 @@ class FeatureSpec:
     series_id: str
     pillar: Pillar
     steps: tuple[Transform, ...]
-    sign: Literal[1, -1] = 1  # orientation inside its pillar composite
+    sign: Literal[1, -1] = 1  # orientation in its composite; recession: expected probit sign
     aggregate: Literal["mean", "last"] = "mean"
     description: str = ""
 
