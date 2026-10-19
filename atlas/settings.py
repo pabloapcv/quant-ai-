@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     )
     assistant_model: str = "claude-opus-5-5"
     assistant_effort: str = "medium"
+    # Hard daily stop on Claude usage, in weighted tokens (atlas.agent.usage); 0 = no limit.
+    llm_daily_token_budget: int = 3_000_000
 
     # HTTP API (atlas api serve). Unset = localhost only, no auth.
     api_token: SecretStr | None = None

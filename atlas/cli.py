@@ -361,6 +361,30 @@ def regime_analogs(
     typer.echo(f"\n{out['note']}")
 
 
+@app.command("usage")
+def usage(days: Annotated[int, typer.Option(help="How many days back")] = 7) -> None:
+    """Claude token usage per day (weighted tokens vs the daily budget, cache hit rate)."""
+    from datetime import timedelta
+
+    from atlas.agent.usage import UsageLedger
+
+    s = get_settings()
+    ledger = UsageLedger(s.data_dir)
+    today = datetime.now(UTC).date()
+    typer.echo(f"daily budget: {s.llm_daily_token_budget:,} weighted tokens (0 = none)")
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        t = ledger.totals(d)
+        if not t["calls"]:
+            continue
+        hit = "n/a" if t["cache_hit_rate"] is None else f"{t['cache_hit_rate']:.0%}"
+        parts = ", ".join(f"{k} {v:,.0f}" for k, v in sorted(t["by_purpose"].items()))
+        typer.echo(
+            f"{d}  calls {t['calls']:>4}  weighted {t['weighted']:>12,.0f}  "
+            f"cache hit {hit:>4}  ({parts})"
+        )
+
+
 @eval_app.command("run")
 def eval_run(
     category: Annotated[
@@ -380,11 +404,10 @@ def eval_run(
     Calls Claude for every case (and the judge): a full 150-case run costs real tokens.
     Exits 1 when the score falls more than 3 points below the baseline on shared cases.
     """
-    import anthropic
-
     from atlas.agent.assistant import Assistant
     from atlas.agent.evals import EvalRun, Judge, compare, load_cases, run_eval
     from atlas.agent.tools import ToolKit
+    from atlas.agent.usage import make_client
 
     s = get_settings()
     cases = load_cases(s.config_dir / "evals" / "golden.yaml")
@@ -396,8 +419,7 @@ def eval_run(
     cases = cases[:limit] if limit else cases
     if not cases:
         raise typer.BadParameter("no cases match the filters")
-    key = s.anthropic_api_key.get_secret_value() if s.anthropic_api_key else ""
-    client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+    client = make_client(s, "eval")
     assistant = Assistant(
         client,
         ToolKit(s.data_dir, s.config_dir),
@@ -876,12 +898,12 @@ def ask(
 
     from atlas.agent.assistant import DISCLAIMER, Assistant
     from atlas.agent.tools import ToolKit
+    from atlas.agent.usage import BudgetExceeded, make_client
 
     s = get_settings()
     try:
-        key = s.anthropic_api_key.get_secret_value() if s.anthropic_api_key else ""
-        # an empty .env entry means "not set": let the SDK fall back to its own resolution
-        client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+        # an empty .env entry means "not set": the SDK falls back to its own resolution
+        client = make_client(s, "ask")
         assistant = Assistant(
             client,
             ToolKit(s.data_dir, s.config_dir),
@@ -896,6 +918,9 @@ def ask(
         ) from None
     except anthropic.APIConnectionError:
         typer.echo("Could not reach the Anthropic API; check the network and retry.")
+        raise typer.Exit(code=1) from None
+    except BudgetExceeded as exc:
+        typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
     typer.echo(answer.text)
     if answer.grounding.unsupported:
@@ -974,15 +999,19 @@ def report_weekly(
 
     import anthropic
 
-    key = s.anthropic_api_key.get_secret_value() if s.anthropic_api_key else ""
+    from atlas.agent.usage import BudgetExceeded, make_client
+
     try:
-        client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+        client = make_client(s, "report")
         report = ReportWriter(client, model=model or s.assistant_model).write(facts, today)
     except anthropic.AuthenticationError:
         raise typer.BadParameter(
             "Anthropic credentials missing or invalid: "
             "set ANTHROPIC_API_KEY or run `ant auth login`"
         ) from None
+    except BudgetExceeded as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
     path = save(report, reports_dir)
     typer.echo(f"wrote {path}")
     if report.unsupported:

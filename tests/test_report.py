@@ -61,7 +61,9 @@ def test_writer_and_red_team_grounded() -> None:
     assert first["output_config"] == {"effort": "high"}
     assert first["fallbacks"] == "default"
     assert "tools" not in first  # the writer only sees facts
-    assert "Draft note" in second["messages"][0]["content"]
+    (block,) = second["messages"][0]["content"]
+    assert "Draft note" in block["text"]
+    assert block["cache_control"] == {"type": "ephemeral"}  # facts prefix is cached
 
 
 def test_writer_repairs_then_reports_unsupported() -> None:

@@ -68,3 +68,38 @@ def test_bearer_token(data: Path) -> None:
     ok = c.get("/v1/universes", headers={"Authorization": "Bearer s3cret"})
     assert ok.status_code == 200
     assert ok.json()["universes"]
+
+
+def test_chat_streams_tool_and_answer_events(data: Path) -> None:
+    from tests.test_agent import FakeClient, response, text_block, tool_block
+
+    fake = FakeClient(
+        [
+            response("tool_use", tool_block("t1", "list_universes", {})),
+            response("end_turn", text_block("There are 4 universes.")),
+        ]
+    )
+    app = create_app(Settings(data_dir=data, config_dir=REPO / "config"), llm_client=fake)
+    with TestClient(app).stream("POST", "/v1/chat", json={"question": "What universes?"}) as r:
+        assert r.headers["content-type"].startswith("text/event-stream")
+        body = "".join(r.iter_text())
+    events = [blk.split("\n") for blk in body.strip().split("\n\n")]
+    names = [e[0].removeprefix("event: ") for e in events]
+    assert names == ["tool", "answer"]
+    answer = json.loads(events[1][1].removeprefix("data: "))
+    assert answer["grounded"] is True
+    assert "not investment advice" in answer["disclaimer"]
+
+
+def test_chat_budget_error(data: Path, tmp_path: Path) -> None:
+    from atlas.agent.usage import MeteredClient, UsageLedger
+    from tests.test_agent import FakeClient
+
+    ledger = UsageLedger(tmp_path)
+    metered = MeteredClient(FakeClient([]), ledger, daily_budget=1, purpose="chat")
+    ledger.record("chat", "m", type("U", (), {"input_tokens": 5})())
+    app = create_app(Settings(data_dir=data, config_dir=REPO / "config"), llm_client=metered)
+    with TestClient(app).stream("POST", "/v1/chat", json={"question": "hi"}) as r:
+        body = "".join(r.iter_text())
+    assert body.startswith("event: error")
+    assert '"kind": "budget"' in body

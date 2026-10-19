@@ -77,6 +77,11 @@ next run skip regime-crossing checks once.
   real tokens) or a slice (`--category scenario`, `--ids ...`). The run exits 1 when the score
   falls more than 3 points below `data/evals/baseline.json`; set a new baseline with
   `--set-baseline` only after reviewing the run.
+- Token spend: `atlas usage` (per day, weighted tokens, cache hit rate, by purpose). When the
+  daily budget is reached every Claude call (ask, chat, report, eval) stops with a budget
+  error until 00:00 UTC; raise `ATLAS_LLM_DAILY_TOKEN_BUDGET` in `.env` if that is intended.
+  A full 150-case eval (assistant + judge) needs a few million weighted tokens, above the
+  default 3M budget: raise it for that run.
 - A grounding miss in an answer (`[grounding] not traceable ...`) is reported, never hidden.
 
 ## API

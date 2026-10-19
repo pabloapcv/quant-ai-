@@ -192,7 +192,9 @@ class ReportWriter:
         return text, resp
 
     def _grounded(self, system: str, user: str, evidence: str) -> tuple[str, GroundingReport, str]:
-        messages: list[dict[str, Any]] = [{"role": "user", "content": user}]
+        # The facts message is the long, shared prefix of the first call and its repair.
+        block = {"type": "text", "text": user, "cache_control": {"type": "ephemeral"}}
+        messages: list[dict[str, Any]] = [{"role": "user", "content": [block]}]
         text, resp = self._call(system, messages)
         report = check(text, [evidence])
         if text and not report.grounded:

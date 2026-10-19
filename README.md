@@ -41,6 +41,9 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `atlas/pipeline.py` — `atlas pipeline daily`: ingest every source, staleness check,
   snapshot, freeze this month's views (write-once), score the live track, run alerts. Run it
   daily: snapshot-only sources gain true point-in-time history only from recorded days.
+- `atlas/agent/usage.py` — LLM cost controls (PRD §10.6): every Claude call is metered to
+  `data/usage/<date>.jsonl`; a daily budget (`ATLAS_LLM_DAILY_TOKEN_BUDGET`, weighted tokens)
+  is a hard stop; system prompt, tools and the tool loop use prompt caching. `atlas usage`.
 - `atlas/agent/evals.py` — `atlas eval run`: the 150-question golden set
   (`config/evals/golden.yaml`: views, drivers, track record, gates, portfolio, regime, series,
   analogs, scenarios, unavailable, advice, adversarial) scored 0-100 on grounding (30), tool
@@ -56,7 +59,8 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   Slack delivery are off until configured (`atlas alerts check` runs them by hand).
 - `atlas/api.py` — `atlas api serve`: read-only FastAPI over the same tools (regime, views,
   frozen views, track record, portfolio, gates, analogs, scenario, series, alerts,
-  snapshots); OpenAPI docs at `/docs`. Localhost only unless `ATLAS_API_TOKEN` is set.
+  snapshots, usage) plus `POST /v1/chat` (Server-Sent Events: tool calls, then the grounded
+  answer); OpenAPI docs at `/docs`. Localhost only unless `ATLAS_API_TOKEN` is set.
 - `atlas/views/track.py` — `atlas pipeline track`: frozen views scored once their horizon
   has elapsed (the live paper track, immune to hindsight).
 - `atlas/quality/drift.py` — live-vs-backtest IC monitor (alert rule `live_ic_drift`) and a

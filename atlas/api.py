@@ -6,23 +6,28 @@ assistant quotes. Auth: when ``ATLAS_API_TOKEN`` is set every ``/v1`` route requ
 (``atlas api serve`` binds 127.0.0.1 by default and refuses other hosts without a token).
 
 The tool cache is rebuilt after ``cache_ttl_s`` so data from the morning pipeline is picked
-up without a restart. Chat (``POST /v1/chat``) is not exposed yet: it spends LLM tokens and
-needs per-user budgets first.
+up without a restart.
+
+``POST /v1/chat`` streams Server-Sent Events: one ``tool`` event per tool call, then an
+``answer`` event (text, grounding, disclaimer) or an ``error`` event. Every Claude call goes
+through the metered client, so chat shares the daily token budget (``budget`` error when it
+is spent) with the CLI, reports and evals.
 """
 
 from __future__ import annotations
 
 import hmac
 import json
+import queue
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from atlas import jsonsafe
@@ -46,6 +51,14 @@ class ScenarioRequest(BaseModel):
         examples=[{"us10y": 0.5, "vix": 5.0}],
     )
     same_regime: bool = False
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {jsonsafe.dumps(data)}\n\n"
 
 
 class _Kit:
@@ -77,7 +90,10 @@ def _universe(universe: str) -> str:
     return universe
 
 
-def create_app(settings: Settings, *, cache_ttl_s: float = 3600.0) -> FastAPI:
+def create_app(
+    settings: Settings, *, cache_ttl_s: float = 3600.0, llm_client: Any = None
+) -> FastAPI:
+    """``llm_client`` overrides the metered Anthropic client (tests)."""
     app = FastAPI(
         title="Atlas API",
         version="0.1.0",
@@ -217,5 +233,67 @@ def create_app(settings: Settings, *, cache_ttl_s: float = 3600.0) -> FastAPI:
         out["problems"] = verify_snapshot(data_dir, snap)
         out["n_files"] = len(out.pop("files", []))
         return out
+
+    chat_lock = threading.Lock()  # one chat at a time: the ToolKit is not built for parallel use
+
+    @app.post("/v1/chat", dependencies=guarded)
+    def chat(req: ChatRequest) -> StreamingResponse:
+        from atlas.agent.assistant import DISCLAIMER, Assistant
+        from atlas.agent.usage import BudgetExceeded, make_client
+
+        events: queue.Queue[str | None] = queue.Queue()
+
+        def work() -> None:
+            try:
+                with chat_lock:
+                    client = llm_client or make_client(settings, "chat")
+                    assistant = Assistant(
+                        client,
+                        kit.get(),
+                        model=settings.assistant_model,
+                        effort=settings.assistant_effort,
+                    )
+                    ans = assistant.ask(
+                        req.question,
+                        on_tool=lambda c: events.put(
+                            _sse(
+                                "tool",
+                                {"name": c.name, "arguments": c.arguments, "error": c.is_error},
+                            )
+                        ),
+                    )
+                events.put(
+                    _sse(
+                        "answer",
+                        {
+                            "text": ans.text,
+                            "grounded": ans.grounding.grounded,
+                            "unsupported": [c.text for c in ans.grounding.unsupported],
+                            "model": ans.model,
+                            "disclaimer": DISCLAIMER,
+                        },
+                    )
+                )
+            except BudgetExceeded as exc:
+                events.put(_sse("error", {"kind": "budget", "message": str(exc)}))
+            except Exception as exc:
+                events.put(_sse("error", {"kind": type(exc).__name__, "message": str(exc)}))
+            finally:
+                events.put(None)
+
+        threading.Thread(target=work, daemon=True).start()
+
+        def stream() -> Iterator[str]:
+            while (item := events.get()) is not None:
+                yield item
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    @app.get("/v1/usage", dependencies=guarded)
+    def usage_today() -> dict[str, Any]:
+        from atlas.agent.usage import UsageLedger
+
+        t = UsageLedger(data_dir).totals(datetime.now(UTC).date())
+        return {"today": t, "daily_budget": settings.llm_daily_token_budget}
 
     return app

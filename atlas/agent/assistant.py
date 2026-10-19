@@ -16,6 +16,7 @@ safety decline is re-run on Anthropic's recommended fallback model instead of fa
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,6 +25,7 @@ from atlas.agent.tools import TOOL_SPECS, ToolKit
 
 DEFAULT_MODEL = "claude-opus-5-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+EPHEMERAL = {"type": "ephemeral"}
 DISCLAIMER = (
     "Research output from model views and historical backtests, not investment advice. "
     "Past performance does not guarantee future results."
@@ -102,7 +104,9 @@ class Assistant:
         kwargs: dict[str, Any] = {
             "model": self.model,
             "max_tokens": 16000,
-            "system": SYSTEM_PROMPT,
+            # Cache breakpoint after tools + system (identical on every call), and on the
+            # latest tool results so each step of the tool loop reuses the previous prefix.
+            "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": EPHEMERAL}],
             "tools": [{**t, "strict": True} for t in TOOL_SPECS],
             "tool_choice": {"type": "auto"},
             "output_config": {"effort": self.effort},
@@ -113,7 +117,8 @@ class Assistant:
             kwargs["fallbacks"] = "default"
         return self.client.beta.messages.create(**kwargs)
 
-    def ask(self, question: str) -> Answer:
+    def ask(self, question: str, on_tool: Callable[[ToolCall], None] | None = None) -> Answer:
+        """Answer one question; ``on_tool`` is told about each tool call as it completes."""
         messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
         calls: list[ToolCall] = []
         results: list[str] = []
@@ -139,6 +144,8 @@ class Assistant:
                 for block in tool_uses:
                     out, is_error = self.toolkit.call(block.name, dict(block.input))
                     calls.append(ToolCall(block.name, dict(block.input), is_error))
+                    if on_tool:
+                        on_tool(calls[-1])
                     results.append(out)
                     batch.append(
                         {
@@ -148,6 +155,12 @@ class Assistant:
                             "is_error": is_error,
                         }
                     )
+                for m in messages:  # keep only the newest breakpoint in the conversation
+                    if isinstance(m["content"], list):
+                        for blk in m["content"]:
+                            if isinstance(blk, dict):
+                                blk.pop("cache_control", None)
+                batch[-1]["cache_control"] = EPHEMERAL
                 messages.append({"role": "user", "content": batch})  # all results, one message
                 continue
 
