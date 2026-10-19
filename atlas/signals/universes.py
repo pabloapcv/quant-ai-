@@ -15,6 +15,7 @@ from atlas.signals.country import (
     DEVELOPED,
     country_panel,
 )
+from atlas.signals.fx import FX_FAMILIES, FX_NAMES, FX_SIGNALS, fx_panel
 from atlas.signals.industry import FAMILIES, SIGNALS, SignalDef, research_panel
 
 INDUSTRY_COMPONENTS = (
@@ -101,6 +102,16 @@ UNIVERSES: dict[str, Universe] = {
         COUNTRY_NAMES,
         "equity_country",
         "COUNTRY",
+    ),
+    "fx_g10": Universe(
+        "fx_g10",
+        "8 G10 currencies vs the US dollar: spot plus carry (ECB, OECD rates)",
+        fx_panel,
+        FX_SIGNALS,
+        FX_FAMILIES,
+        FX_NAMES,
+        "fx",
+        "FX",
     ),
 }
 

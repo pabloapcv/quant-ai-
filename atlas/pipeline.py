@@ -46,6 +46,7 @@ DEFAULT_VIEWS: tuple[tuple[str, int], ...] = (
     ("ind49", 3),
     ("ctry_dev_lcl", 3),
     ("ctry_usd", 3),
+    ("fx_g10", 3),
 )
 
 

@@ -322,7 +322,7 @@ def regime_now(
 @regime_app.command("analogs")
 def regime_analogs(
     universe: Annotated[
-        str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl")
+        str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl | fx_g10")
     ] = "ind12",
     at: Annotated[str | None, typer.Option("--at", help="YYYY-MM-DD; default today")] = None,
     k: Annotated[int, typer.Option(help="Number of analogs")] = 10,
@@ -616,7 +616,7 @@ def scenario_run(
         ),
     ],
     universe: Annotated[
-        str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl")
+        str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl | fx_g10")
     ] = "ind12",
     same_regime: Annotated[
         bool, typer.Option("--same-regime", help="Fit on months in the current quadrant only")
@@ -711,7 +711,7 @@ def _context(universe: str, start: str | None, cost_bps: float, quantiles: int) 
     )
 
 
-UniverseOpt = Annotated[str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl")]
+UniverseOpt = Annotated[str, typer.Option(help="ind12 | ind49 | ctry_usd | ctry_dev_lcl | fx_g10")]
 StartOpt = Annotated[str | None, typer.Option(help="YYYY-MM-DD")]
 CostOpt = Annotated[float, typer.Option(help="Cost per unit one-way turnover, bps")]
 QuantOpt = Annotated[int, typer.Option(min=2, max=10)]

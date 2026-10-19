@@ -133,6 +133,7 @@ async def test_run_daily_skips_fred_without_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import atlas.pipeline as pl_mod
+    from atlas.text.fed import FedTextConnector
 
     async def no_network(*_a: object, **_k: object) -> list[object]:
         return []
@@ -141,7 +142,7 @@ async def test_run_daily_skips_fred_without_key(
         return {"releases": 0, "new": 0, "skipped": 0, "failed": []}
 
     monkeypatch.setattr(pl_mod, "ingest_series", no_network)
-    monkeypatch.setattr(pl_mod.FedTextConnector, "sync", no_fed)  # never hit federalreserve.gov
+    monkeypatch.setattr(FedTextConnector, "sync", no_fed)  # never hit federalreserve.gov
     data = tmp_path / "data"
     _country_store(data)
     rep = await run_daily(Settings(data_dir=data, config_dir=REPO / "config"), views=())

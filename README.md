@@ -50,6 +50,11 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   choice (20) and an Opus judge rubric (50); fails on a > 3-point drop vs
   `data/evals/baseline.json` (`--set-baseline`). Every case calls Claude: filter with
   `--category`, `--ids` or `--limit` for cheap checks.
+- `atlas/signals/fx.py` — G10 FX vs the US dollar (`fx_g10`, 8 currencies, 1999 onward): ECB
+  month-end rates plus the carry earned at OECD 3-month rates; carry, momentum and long-term
+  reversal signals through the same gates, views, portfolio and live track. Carry is the one
+  strong signal (IC t 3.7, positive in 4 of 4 regimes); the ensemble's probabilities are not
+  yet informative (Brier at 0.25).
 - `atlas/text/` — central-bank text (PRD §6.6): FOMC statements and minutes from
   federalreserve.gov (2006 onward; `atlas text sync`, daily in the pipeline), stored point in
   time; BM25 passage search (`atlas text search`), statement-to-statement changes
