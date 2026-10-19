@@ -22,6 +22,27 @@ for date ``s`` is known only at ``s + horizon``, so every fit at ``t`` uses date
 ``s <= t - horizon``.
 
 The output is one row per (date, asset), the input to ``atlas.views``.
+
+Combiners (step 3): ``ic_weight`` (default) as above, or ``gbm``: a gradient-boosted ranker
+(scikit-learn histogram GBM, LightGBM-style, fixed regularized settings) trained walk-forward
+on the component z-scores to predict each asset's cross-sectional return rank, refit every
+``gbm_refit`` months on realized outcomes only. Walk-forward 3-month rank IC since 1970
+(t-stat), measured 2026-10-19:
+
+=============  ===============  ===============
+universe       ic_weight        gbm
+=============  ===============  ===============
+ind12          0.054 (2.49)     0.025 (1.35)
+ind49          0.065 (4.30)     0.057 (4.09)
+ctry_usd       0.022 (0.66)     0.040 (1.36)
+ctry_dev_lcl   0.048 (2.12)     0.090 (4.31)
+fx_g10         0.086 (2.30)     0.058 (1.60)
+rates_dev      0.037 (1.37)     0.054 (2.25)
+=============  ===============  ===============
+
+Neither wins everywhere, and choosing per universe from this table would be selection on
+out-of-sample results, so ``ic_weight`` stays the default and ``gbm`` is an option
+(``--combiner gbm``) to be judged on the live track.
 """
 
 from __future__ import annotations
@@ -62,6 +83,9 @@ class EnsembleConfig:
     gate_tstat: float | None = None  # Newey-West IC t-stat, e.g. 2.0
     gate_regimes: int | None = None  # positive mean IC in >= this many market regimes
     gate_min_regime_obs: int = 12  # months a regime needs before its IC counts
+    # "ic_weight": past-IC-weighted z-scores (default); "gbm": gradient-boosted ranker
+    combiner: str = "ic_weight"
+    gbm_refit: int = 12  # months between ranker refits
     version: str = "ens_v1"
 
 
@@ -219,6 +243,17 @@ def walk_forward(ctx: ResearchContext, config: EnsembleConfig | None = None) -> 
         ).alias("raw_score"),
         pl.sum_horizontal(pl.col(f"w_{n}") for n in names).alias("w_total"),
     )
+    if cfg.combiner == "gbm":
+        preds = gbm_scores(panel, zcols, dates, cfg)
+        scored = (
+            scored.drop("raw_score", "w_total")
+            .join(preds, on=["date", "asset"], how="left")
+            .with_columns(
+                pl.when(pl.col("raw_score").is_not_null()).then(1.0).otherwise(0.0).alias("w_total")
+            )
+        )
+    elif cfg.combiner != "ic_weight":
+        raise ValueError(f"unknown combiner {cfg.combiner!r}")
     scored = scored.with_columns(
         pl.when(pl.col("w_total") > 0).then(_xs_z("raw_score")).otherwise(None).alias("score")
     )
@@ -270,6 +305,59 @@ def walk_forward(ctx: ResearchContext, config: EnsembleConfig | None = None) -> 
         forecasts=scored.select(keep),
         weights=weights,
         component_list=tuple(names),
+    )
+
+
+GBM_PARAMS = {  # fixed a priori, never tuned on results: shallow, slow, heavily regularized
+    "max_iter": 150,
+    "learning_rate": 0.05,
+    "max_depth": 3,
+    "min_samples_leaf": 100,
+    "l2_regularization": 1.0,
+    "random_state": 0,
+}
+
+
+def gbm_scores(
+    panel: pl.DataFrame, zcols: Sequence[str], dates: pl.Series, cfg: EnsembleConfig
+) -> pl.DataFrame:
+    """Walk-forward gradient-boosted ranker: (date, asset, raw_score).
+
+    Target: each asset's cross-sectional percentile rank of the forward return (centred), so
+    the model learns rankings, not market moves. At a refit date ``t`` it trains on dates
+    ``<= t - horizon`` (realized outcomes only) and scores months ``t .. t + gbm_refit - 1``.
+    Features are the component z-scores; missing values are handled natively.
+    """
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    df = panel.with_columns(
+        ((pl.col("fwd_ret").rank().over("date") - 1) / (pl.len().over("date") - 1) - 0.5).alias(
+            "target"
+        )
+    )
+    date_list = dates.to_list()
+    idx = {d: i for i, d in enumerate(date_list)}
+    df = df.with_columns(pl.col("date").replace_strict(idx, return_dtype=pl.Int64).alias("t"))
+    x_all = df.select(zcols).to_numpy().astype(np.float64)
+    y_all = df["target"].to_numpy().astype(np.float64)
+    t_all = df["t"].to_numpy()
+    out = np.full(len(df), np.nan)
+    h = cfg.horizon
+    for start in range(cfg.min_history + h, len(date_list), cfg.gbm_refit):
+        train = (t_all <= start - h) & np.isfinite(y_all)
+        if len(np.unique(t_all[train])) < cfg.min_history:
+            continue
+        # components with no history yet (e.g. a 60-month signal early on) are left out
+        usable = np.isfinite(x_all[train]).sum(axis=0) >= GBM_PARAMS["min_samples_leaf"]
+        if not usable.any():
+            continue
+        model = HistGradientBoostingRegressor(**GBM_PARAMS)
+        model.fit(x_all[train][:, usable], y_all[train])
+        score = (t_all >= start) & (t_all < start + cfg.gbm_refit)
+        if score.any():
+            out[score] = model.predict(x_all[score][:, usable])
+    return pl.DataFrame({"date": df["date"], "asset": df["asset"], "raw_score": out}).with_columns(
+        pl.col("raw_score").fill_nan(None)
     )
 
 

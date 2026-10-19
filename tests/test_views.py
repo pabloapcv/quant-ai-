@@ -280,3 +280,29 @@ def test_publish_ignores_run_metadata(run_and_ctx, tmp_path: Path) -> None:  # t
     )  # new commit, new snapshot
     assert publish(again, tmp_path, "ind12") == path  # same forecasts -> no-op
     assert json.loads(path.read_text())[0]["provenance"]["snapshot_id"] == "snap_1"  # first kept
+
+
+def test_gbm_combiner_is_point_in_time(run_and_ctx) -> None:  # type: ignore[no-untyped-def]
+    """The gradient-boosted ranker trains only on realized outcomes: no look-ahead."""
+    from dataclasses import replace
+
+    _, ctx, _ = run_and_ctx
+    cfg = EnsembleConfig(horizon=3, min_history=36, calib_min_dates=48, combiner="gbm")
+    run = walk_forward(ctx, cfg)
+    scored = run.forecasts.drop_nulls("score")
+    assert scored.height > 0
+    first = scored["date"].min()
+    dates = run.forecasts.select("date").unique().sort("date")["date"].to_list()
+    assert first is not None
+    assert first >= dates[cfg.min_history + cfg.horizon]  # needs min_history realized months
+    cut = dates[180]
+    poisoned = ctx.panel.with_columns(
+        pl.when(pl.col("date") > cut).then(pl.col("ret") * -5).otherwise(pl.col("ret")).alias("ret")
+    )
+    run2 = walk_forward(replace(ctx, panel=poisoned), cfg)
+    cols = ["date", "asset", "score", "exp_excess", "prob"]
+    a = run.forecasts.filter(pl.col("date") <= cut).select(cols)
+    b = run2.forecasts.filter(pl.col("date") <= cut).select(cols)
+    assert_frame_equal(a, b, check_exact=False, rel_tol=1e-9, abs_tol=1e-12)
+    with pytest.raises(ValueError, match="unknown combiner"):
+        walk_forward(ctx, EnsembleConfig(combiner="magic"))

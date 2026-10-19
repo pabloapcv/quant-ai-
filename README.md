@@ -50,6 +50,10 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   choice (20) and an Opus judge rubric (50); fails on a > 3-point drop vs
   `data/evals/baseline.json` (`--set-baseline`). Every case calls Claude: filter with
   `--category`, `--ids` or `--limit` for cheap checks.
+- Ensemble combiner option `--combiner gbm` (views build/evaluate, portfolio): a
+  walk-forward gradient-boosted ranker on the component z-scores (PRD §7.2's LightGBM ranker,
+  via scikit-learn). Better than the IC-weighted default on 3 of 6 universes, worse on 3, so
+  the default is unchanged; the comparison table is in the ensemble module's docstring.
 - `atlas/signals/fx.py` — G10 FX vs the US dollar (`fx_g10`, 8 currencies, 1999 onward): ECB
   month-end rates plus the carry earned at OECD 3-month rates; carry, momentum and long-term
   reversal signals through the same gates, views, portfolio and live track. Carry is the one

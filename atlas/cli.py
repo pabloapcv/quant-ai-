@@ -861,16 +861,32 @@ GateRegOpt = Annotated[
 ]
 
 
+CombinerOpt = Annotated[
+    str,
+    typer.Option(
+        help="ic_weight (default: past-IC-weighted z-scores) | gbm (gradient-boosted ranker)"
+    ),
+]
+
+
 def _ensemble_config(
-    universe: str, horizon: int, gate_tstat: float | None, gate_regimes: int | None
+    universe: str,
+    horizon: int,
+    gate_tstat: float | None,
+    gate_regimes: int | None,
+    combiner: str = "ic_weight",
 ) -> EnsembleConfig:
+    if combiner not in ("ic_weight", "gbm"):
+        raise typer.BadParameter(f"unknown combiner {combiner!r}: ic_weight | gbm")
     gated = gate_tstat is not None or gate_regimes is not None
+    version = "ens_v1" + ("_gated" if gated else "") + ("_gbm" if combiner == "gbm" else "")
     return EnsembleConfig(
         horizon=horizon,
         components=get_universe(universe).ensemble_components,
         gate_tstat=gate_tstat,
         gate_regimes=gate_regimes,
-        version="ens_v1_gated" if gated else "ens_v1",
+        combiner=combiner,
+        version=version,
     )
 
 
@@ -880,6 +896,7 @@ def views_build(
     horizon: HorizonOpt = 3,
     gate_tstat: GateTOpt = None,
     gate_regimes: GateRegOpt = None,
+    combiner: CombinerOpt = "ic_weight",
     as_of: Annotated[str | None, typer.Option("--as-of", help="YYYY-MM-01; default latest")] = None,
     do_publish: Annotated[
         bool, typer.Option("--publish", help="Freeze to data/gold/views")
@@ -888,7 +905,9 @@ def views_build(
 ) -> None:
     """Current views: stance, calibrated probability, expected excess return and its range."""
     ctx = _context(universe, None, 10.0, 3)
-    run = ensemble_walk_forward(ctx, _ensemble_config(universe, horizon, gate_tstat, gate_regimes))
+    run = ensemble_walk_forward(
+        ctx, _ensemble_config(universe, horizon, gate_tstat, gate_regimes, combiner)
+    )
     views = build_views(
         run,
         universe,
@@ -925,11 +944,14 @@ def views_evaluate(
     horizon: HorizonOpt = 3,
     gate_tstat: GateTOpt = None,
     gate_regimes: GateRegOpt = None,
+    combiner: CombinerOpt = "ic_weight",
     start: StartOpt = "1970-01-01",
 ) -> None:
     """Walk-forward track record of the view model: IC, calibration, coverage, hit rate."""
     ctx = _context(universe, None, 10.0, 3)
-    run = ensemble_walk_forward(ctx, _ensemble_config(universe, horizon, gate_tstat, gate_regimes))
+    run = ensemble_walk_forward(
+        ctx, _ensemble_config(universe, horizon, gate_tstat, gate_regimes, combiner)
+    )
     ev = evaluate(run, _parse_date(start) if start else None)
     for k, v in ev.summary().items():
         typer.echo(f"{k:<22} {_fmt(v)}")
@@ -944,6 +966,7 @@ def portfolio_backtest(
     horizon: HorizonOpt = 3,
     gate_tstat: GateTOpt = None,
     gate_regimes: GateRegOpt = None,
+    combiner: CombinerOpt = "ic_weight",
     start: StartOpt = "1970-01-01",
     te: Annotated[float, typer.Option(help="Tracking-error budget, annual")] = 0.04,
     max_active: Annotated[float, typer.Option(help="Max active weight per asset")] = 0.05,
@@ -952,7 +975,9 @@ def portfolio_backtest(
 ) -> None:
     """Walk-forward model portfolio: views -> constrained tilts -> net active return."""
     ctx = _context(universe, None, cost_bps, 3)
-    run = ensemble_walk_forward(ctx, _ensemble_config(universe, horizon, gate_tstat, gate_regimes))
+    run = ensemble_walk_forward(
+        ctx, _ensemble_config(universe, horizon, gate_tstat, gate_regimes, combiner)
+    )
     fc = run.forecasts
     if start:
         fc = fc.filter(pl.col("date") >= _parse_date(start))
@@ -971,12 +996,15 @@ def portfolio_now(
     horizon: HorizonOpt = 3,
     gate_tstat: GateTOpt = None,
     gate_regimes: GateRegOpt = None,
+    combiner: CombinerOpt = "ic_weight",
     te: Annotated[float, typer.Option(help="Tracking-error budget, annual")] = 0.04,
     max_active: Annotated[float, typer.Option(help="Max active weight per asset")] = 0.05,
 ) -> None:
     """Latest model-portfolio weights against the equal-weight benchmark."""
     ctx = _context(universe, None, 10.0, 3)
-    run = ensemble_walk_forward(ctx, _ensemble_config(universe, horizon, gate_tstat, gate_regimes))
+    run = ensemble_walk_forward(
+        ctx, _ensemble_config(universe, horizon, gate_tstat, gate_regimes, combiner)
+    )
     latest = run.forecasts.drop_nulls("exp_excess")["date"].max()
     # include the latest month: backtest needs a next-month return, so append a zero row
     panel = ctx.panel.select("date", "asset", "ret")
