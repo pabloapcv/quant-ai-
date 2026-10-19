@@ -59,6 +59,10 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   snapshots); OpenAPI docs at `/docs`. Localhost only unless `ATLAS_API_TOKEN` is set.
 - `atlas/views/track.py` — `atlas pipeline track`: frozen views scored once their horizon
   has elapsed (the live paper track, immune to hindsight).
+- `atlas/quality/drift.py` — live-vs-backtest IC monitor (alert rule `live_ic_drift`) and a
+  feature PSI diagnostic in every run report (not an alert: see the module docstring).
+- `docs/runbooks.md` — operations: scheduled jobs, reading a pipeline run, alerts, recovery,
+  evals, API.
 - `tests/test_leakage.py` — the look-ahead leakage suite (blocking in CI).
 
 ## Quickstart

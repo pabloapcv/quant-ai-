@@ -27,9 +27,11 @@ from atlas.connectors.kenfrench import KenFrenchConnector
 from atlas.connectors.sdmx import AGENCIES, SdmxConnector
 from atlas.ingest import IngestReport, ingest_series
 from atlas.models.expected_returns.ensemble import EnsembleConfig, walk_forward
+from atlas.models.regime.engine import RegimeEngine, data_month_for
 from atlas.pit.snapshot import create_snapshot, git_sha
 from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
+from atlas.quality.drift import backtest_ic_stats, feature_psi
 from atlas.settings import Settings
 from atlas.signals.research import ResearchContext
 from atlas.signals.universes import get_universe
@@ -60,6 +62,9 @@ class PipelineReport:
     snapshot_id: str | None = None
     track: dict[str, Any] = field(default_factory=dict)
     alerts: list[dict[str, Any]] = field(default_factory=list)
+    # "universe:horizon" -> {"backtest": {mean, sd, n}, "live_ics": [...] (oldest first)}
+    ic_monitor: dict[str, dict[str, Any]] = field(default_factory=dict)
+    feature_psi: dict[str, float] = field(default_factory=dict)  # diagnostic, top inputs
 
     @property
     def ok(self) -> bool:
@@ -70,6 +75,7 @@ class PipelineReport:
 
 
 INCREMENTAL_BUFFER = timedelta(days=3)
+BACKTEST_IC_START = date(1970, 1, 1)  # same window as the reported walk-forward track record
 
 
 def incremental_since(store: PITStore, series_ids: Sequence[str]) -> dict[str, date]:
@@ -193,6 +199,10 @@ async def run_daily(
             run = walk_forward(
                 ctx, EnsembleConfig(horizon=horizon, components=uni.ensemble_components)
             )
+            report.ic_monitor[f"{universe}:{horizon}M"] = {
+                "backtest": backtest_ic_stats(run.forecasts, BACKTEST_IC_START),
+                "live_ics": [],
+            }
             vs = build_views(run, universe, code_sha=git_sha(), snapshot_id=report.snapshot_id)
             target = (
                 views_dir(data_dir, universe, vs[0].horizon) / f"{vs[0].as_of.isoformat()}.json"
@@ -214,6 +224,9 @@ async def run_daily(
     async def track() -> tuple[bool, str]:
         rec: TrackRecord = score_all(data_dir, returns)
         report.track = rec.summary()
+        for m in sorted(rec.scored, key=lambda m: m.as_of):
+            mon = report.ic_monitor.setdefault(f"{m.universe}:{m.horizon}", {"live_ics": []})
+            mon.setdefault("live_ics", []).append(m.rank_ic)
         return (
             True,
             f"{report.track['months_scored']} scored, {report.track['months_pending']} pending",
@@ -221,9 +234,23 @@ async def run_daily(
 
     await _timed(report, "track:score", track)
 
+    async def drift() -> tuple[bool, str]:
+        cube = store.load_cube()
+        if "US.IP" not in cube:
+            return True, "skipped: no macro data"
+        _, matrix = RegimeEngine(cube).composites(started)
+        values = feature_psi(matrix, data_month_for(started))
+        report.feature_psi = dict(sorted(values.items(), key=lambda kv: -kv[1])[:5])
+        top = ", ".join(f"{k} {v:.2f}" for k, v in report.feature_psi.items())
+        return True, f"PSI (36m vs prior 10y, diagnostic): {top}"
+
+    await _timed(report, "quality:drift", drift)
+
     async def alerts() -> tuple[bool, str]:
         failed = [st.name for st in report.steps if not st.ok]
-        fired = run_alerts(data_dir, config_dir, failed_steps=failed, now=started)
+        fired = run_alerts(
+            data_dir, config_dir, failed_steps=failed, now=started, ic_monitor=report.ic_monitor
+        )
         report.alerts = [a.model_dump() for a in fired]
         sent = sum(a.status == "sent" for a in fired)
         return True, f"{len(fired)} triggered, {sent} sent"

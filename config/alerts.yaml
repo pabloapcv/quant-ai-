@@ -38,3 +38,8 @@ rules:
 
   - name: data_quality
     kind: pipeline_failure
+
+  - name: live_ic_drift
+    kind: live_ic_drift
+    window: 6                    # last 6 scored live months per universe/horizon
+    sigmas: 2.0                  # flag live mean IC below backtest mean - 2 standard errors

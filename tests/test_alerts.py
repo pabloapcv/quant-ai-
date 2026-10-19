@@ -29,7 +29,7 @@ def test_repo_config_loads() -> None:
     kinds = {r.kind for r in cfg.rules}
     assert kinds == {
         "regime_prob_cross", "recession_prob", "series_change", "ratio", "view_flip",
-        "pipeline_failure",
+        "pipeline_failure", "live_ic_drift",
     }  # fmt: skip
     assert cfg.channels.ntfy_topic_url == ""  # external channels ship disabled
 
@@ -116,3 +116,15 @@ def test_delivery_channels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
         (out,) = dispatch(cfg, [a], AlertState(), tmp_path, NOW, client=client)
     assert out.delivery == {"ntfy": "ok", "slack": "http 500"}
     assert len(seen) == 2
+
+
+def test_live_ic_rule() -> None:
+    cfg = AlertConfig(rules=[Rule(name="ic", kind="live_ic_drift", window=6, sigmas=2.0)])
+    monitor = {
+        "ind12:3M": {"backtest": {"mean": 0.05, "sd": 0.2, "n": 600}, "live_ics": [-0.2] * 6},
+        "ind49:3M": {"backtest": {"mean": 0.05, "sd": 0.2, "n": 600}, "live_ics": [0.1] * 6},
+        "ctry:3M": {"live_ics": [-0.5] * 6},  # no backtest stats: never flagged
+    }
+    alerts = evaluate(cfg, AlertInputs(ic_monitor=monitor), {}, NOW.date())
+    assert [a.key for a in alerts] == ["ic:ind12:3M"]
+    assert "below the backtest" in alerts[0].message

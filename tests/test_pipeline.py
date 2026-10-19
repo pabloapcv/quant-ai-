@@ -90,10 +90,15 @@ async def test_run_daily_without_ingest(tmp_path: Path, monkeypatch: pytest.Monk
         "views:ctry_dev_lcl:3M",
         "views:ind12:3M",
         "track:score",
+        "quality:drift",
         "alerts",
     ]
     by = {s.name: s for s in rep.steps}
     assert by["alerts"].ok
+    assert "skipped" in by["quality:drift"].detail  # no macro data in this store
+    mon = rep.ic_monitor["ctry_dev_lcl:3M"]
+    assert mon["backtest"]["n"] > 100
+    assert mon["live_ics"] == []
     assert [a["rule"] for a in rep.alerts] == ["data_quality"]  # the failed ind12 step
     assert "views:ind12:3M" in rep.alerts[0]["message"]
     assert rep.alerts[0]["delivery"] == {}  # no channel configured: log only

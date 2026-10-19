@@ -29,7 +29,7 @@ from atlas import jsonsafe
 
 Kind = Literal[
     "regime_prob_cross", "recession_prob", "series_change", "ratio", "view_flip",
-    "pipeline_failure",
+    "pipeline_failure", "live_ic_drift",
 ]  # fmt: skip
 
 
@@ -44,6 +44,8 @@ class Rule(BaseModel):
     denominator: str | None = None
     horizon: int = 3
     include_neutral: bool = False
+    window: int = 6
+    sigmas: float = 2.0
 
 
 class Channels(BaseModel):
@@ -79,6 +81,7 @@ class AlertInputs(BaseModel):
     series: dict[str, list[tuple[date, float]]] = Field(default_factory=dict)
     views: dict[str, list[list[dict[str, Any]]]] = Field(default_factory=dict)  # newest last
     failed_steps: list[str] = Field(default_factory=list)
+    ic_monitor: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------- checks
@@ -208,6 +211,28 @@ def check_pipeline(rule: Rule, failed: Sequence[str], today: date) -> list[Alert
     ]
 
 
+def check_live_ic(rule: Rule, monitor: Mapping[str, Mapping[str, Any]]) -> list[Alert]:
+    from atlas.quality.drift import live_ic_drift
+
+    out = []
+    for key, mon in sorted(monitor.items()):
+        hit = live_ic_drift(
+            mon.get("live_ics", []), mon.get("backtest", {}), window=rule.window, sigmas=rule.sigmas
+        )
+        if hit:
+            out.append(
+                Alert(
+                    rule=rule.name,
+                    key=f"{rule.name}:{key}",
+                    message=f"{key} live rank IC {hit['live_mean']:+.3f} over the last "
+                    f"{hit['n']} scored months is below the backtest's {hit['backtest_mean']:+.3f} "
+                    f"minus {rule.sigmas:g} standard errors ({hit['floor']:+.3f})",
+                    value=hit["live_mean"],
+                )
+            )
+    return out
+
+
 def evaluate(
     cfg: AlertConfig, inputs: AlertInputs, prev_probs: Mapping[str, float], today: date
 ) -> list[Alert]:
@@ -230,6 +255,8 @@ def evaluate(
                 alerts += check_view_flips(rule, universe, files)
         elif rule.kind == "pipeline_failure":
             alerts += check_pipeline(rule, inputs.failed_steps, today)
+        elif rule.kind == "live_ic_drift":
+            alerts += check_live_ic(rule, inputs.ic_monitor)
     return alerts
 
 
@@ -340,8 +367,13 @@ def run_alerts(
     failed_steps: Sequence[str] = (),
     now: datetime | None = None,
     client: httpx.Client | None = None,
+    ic_monitor: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[Alert]:
-    """Gather inputs from the store, evaluate every rule, dispatch."""
+    """Gather inputs from the store, evaluate every rule, dispatch.
+
+    ``ic_monitor`` comes from the pipeline run; when absent (``atlas alerts check``) the latest
+    saved run's is used.
+    """
     from atlas.models.regime.engine import RegimeEngine
     from atlas.pit.store import PITStore
 
@@ -352,7 +384,12 @@ def run_alerts(
     cfg = AlertConfig.load(path)
     store = PITStore(data_dir)
     cube = store.load_cube()
-    inputs = AlertInputs(failed_steps=list(failed_steps))
+    if ic_monitor is None:
+        runs = sorted((data_dir / "runs").glob("*.json"))
+        ic_monitor = json.loads(runs[-1].read_text()).get("ic_monitor", {}) if runs else {}
+    inputs = AlertInputs(
+        failed_steps=list(failed_steps), ic_monitor={k: dict(v) for k, v in ic_monitor.items()}
+    )
     if "US.IP" in cube:
         rep = RegimeEngine(cube).run(now.date(), with_hmm=False)
         inputs.quadrant_probs = {str(k): float(v) for k, v in rep.quadrant_probs.items()}
