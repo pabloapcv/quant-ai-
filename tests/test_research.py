@@ -285,3 +285,13 @@ def test_market_regimes_needs_history(tmp_path: Path) -> None:
     store.write(make_obs_frame([("FF.FACTOR.MKTRF", date(2020, 1, 1), KNOWN, 1.0)]))
     with pytest.raises(ValueError, match=r"months of FF\.FACTOR\.MKTRF"):
         market_regimes(store)
+
+
+def test_ensemble_marginal_with_no_signals() -> None:
+    import math
+
+    from atlas.signals.research import ensemble_marginal_icir
+
+    full, marginal = ensemble_marginal_icir({})
+    assert math.isnan(full)
+    assert marginal == {}

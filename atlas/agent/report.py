@@ -26,7 +26,7 @@ from atlas.agent.assistant import DEFAULT_MODEL, DISCLAIMER, FALLBACK_BETA
 from atlas.agent.grounding import GroundingReport, check
 from atlas.agent.tools import ToolKit
 
-HEADLINE_UNIVERSES = ("ind12", "ctry_dev_lcl")
+HEADLINE_UNIVERSES = ("ind12", "ctry_dev_lcl", "fx_g10")
 
 WRITER_PROMPT = """You are Atlas, writing the weekly quantitative research note. You get a \
 JSON object of facts computed by the Atlas engine. Write the note from these facts only.
@@ -35,13 +35,15 @@ Rules:
 - Every number must come from the facts (you may round, and may write fractions as \
 percentages). Do not estimate, extrapolate or add outside market knowledge.
 - Be plain about conviction: most views are low-conviction leans; say so. Mention when a \
-track record is weak.
+track record is weak, and in Model quality always give the 2021-2025 holdout result \
+(holdout_2021_2025) next to the long-run record: recent out-of-sample skill is what matters.
 - Research views, not investment advice; no instructions to buy or sell.
 - Markdown. Use exactly these sections, in order, each a few sentences or a short list:
   ## Summary
   ## Macro regime
   ## US sectors
   ## Developed markets
+  ## Currencies
   ## Model portfolios
   ## What changed since last week
   ## Model quality

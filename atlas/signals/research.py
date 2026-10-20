@@ -96,6 +96,8 @@ def ensemble_marginal_icir(panels: dict[str, pl.DataFrame]) -> tuple[float, dict
     marginal(s) = ICIR(all) - ICIR(all but s). Positive means the ensemble is better with s.
     """
     names = list(panels)
+    if not names:  # no signal could run on this universe's data
+        return math.nan, {}
     wide: pl.DataFrame | None = None
     for name, p in panels.items():
         z = p.select(

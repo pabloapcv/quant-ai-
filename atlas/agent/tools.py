@@ -18,6 +18,7 @@ from typing import Any
 import polars as pl
 
 from atlas import jsonsafe
+from atlas.backtest.holdout import HoldoutLog
 from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.models.expected_returns.ensemble import EnsembleConfig, EnsembleRun, walk_forward
@@ -73,7 +74,8 @@ TOOL_SPECS: list[dict[str, Any]] = [
         "name": "get_track_record",
         "description": (
             "Walk-forward track record of the view model since 1970: rank IC, ICIR, Brier "
-            "score vs 50%, interval coverage, directional hit rate, overweight-minus-underweight."
+            "score vs 50%, interval coverage, directional hit rate, overweight-minus-underweight; "
+            "plus the locked 2021-2025 holdout result when it has been opened."
         ),
         "input_schema": _schema(
             {"universe": _UNIVERSE, "horizon": _HORIZON}, ["universe", "horizon"]
@@ -318,7 +320,26 @@ class ToolKit:
         _, run = self._run(universe, horizon)
         ev = evaluate(run, date(1970, 1, 1))
         summary = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in ev.summary().items()}
-        return {"universe": universe, "horizon_months": horizon, "since": "1970-01", **summary}
+        out: dict[str, Any] = {
+            "universe": universe,
+            "horizon_months": horizon,
+            "since": "1970-01",
+            **summary,
+        }
+        opened = HoldoutLog(self.data_dir).openings(universe, "ensemble_v1")
+        if opened and horizon == 3:
+            first = opened[0]
+            ens = first.get("ensemble", {})
+            out["holdout_2021_2025"] = {
+                "ic_mean": round(ens.get("ic_mean", float("nan")), 4),
+                "ic_tstat": round(ens.get("ic_tstat", float("nan")), 2),
+                "hit_rate": round(ens.get("hit_rate", float("nan")), 3),
+                "months": ens.get("months"),
+                "contaminated": first.get("contaminated", True),
+                "note": "The locked 2021-2025 holdout, opened once. Contaminated means the "
+                "model was designed on data that included those years.",
+            }
+        return out
 
     def get_signal_gates(self, universe: str) -> dict[str, Any]:
         suite = run_gate_suite(self._context(universe, regimes=True), n_splits=8)
