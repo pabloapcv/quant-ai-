@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import asdict
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -148,6 +149,68 @@ def ingest_fred(
 
     failures = asyncio.run(run())
     raise typer.Exit(code=1 if failures else 0)
+
+
+@ingest_app.command("releases")
+def ingest_releases(
+    day: Annotated[
+        str | None, typer.Option("--date", help="YYYY-MM-DD; default today (ET)")
+    ] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show today's plan only")] = False,
+    max_wait_min: Annotated[int, typer.Option(help="Polling window per release")] = 30,
+) -> None:
+    """Ingest series at their release times today (FRED release calendar), then exit."""
+    from atlas.pipeline import incremental_since
+    from atlas.releases import ET, ReleaseDayReport, execute, plan, release_map, report_json
+
+    settings = get_settings()
+    if settings.fred_api_key is None:
+        raise typer.BadParameter("set ATLAS_FRED_API_KEY (free key at fredaccount.stlouisfed.org)")
+    key = settings.fred_api_key.get_secret_value()
+    cat = _catalog()
+    specs = cat.by_source("fred")
+    target = _parse_date(day) if day else datetime.now(ET).date()
+
+    def connector(since: dict[str, date] | None = None) -> FredConnector:
+        return FredConnector(
+            key,
+            raw_store=RawStore(settings.data_dir),
+            max_calls_per_minute=settings.fred_max_calls_per_minute,
+            timeout_s=settings.http_timeout_s,
+            since=since,
+        )
+
+    async def run() -> ReleaseDayReport:
+        async with connector() as fred:
+            rmap = await release_map(fred, specs, settings.data_dir)
+            today = {r.release_id for r in await fred.release_calendar(target, target)}
+        slots = plan(specs, rmap, today, target)
+        report = ReleaseDayReport(day=target)
+        for sl in slots:
+            local = sl.at.astimezone(ET).strftime("%H:%M ET")
+            typer.echo(f"{local}  {', '.join(sl.series)}")
+        if not slots:
+            typer.echo(f"no timed releases on {target}")
+        if dry_run or not slots:
+            return report
+
+        async def ingest(ids: Sequence[str]) -> int:
+            store = _store()
+            async with connector(incremental_since(store, list(ids))) as fred:
+                reps = await ingest_series([cat.get(i) for i in ids], fred, store)
+            return sum(r.rows_new for r in reps)
+
+        report.slots = await execute(slots, ingest, max_wait=timedelta(minutes=max_wait_min))
+        for r in report.slots:
+            typer.echo(f"{r.at:%H:%M}Z {r.new_rows:>5} new rows after {r.attempts} tries  {r.note}")
+        return report
+
+    report = asyncio.run(run())
+    if report.slots:
+        out = settings.data_dir / "runs" / f"releases-{target.isoformat()}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(report_json(report))
+        typer.echo(f"wrote {out}")
 
 
 def _echo_reports(reports: list[IngestReport]) -> int:

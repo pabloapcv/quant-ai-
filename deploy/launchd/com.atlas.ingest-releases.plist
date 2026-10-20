@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Weekday release-calendar ingest: starts after the 06:30 pipeline, waits for each of the
+     day's timed releases (08:30 / 10:00 / 16:30 ET ...), ingests them, exits. Install with
+     the command in docs/runbooks.md ("Release-day ingest"). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.atlas.ingest-releases</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/pablopena/quant ai/.venv/bin/atlas</string>
+    <string>ingest</string>
+    <string>releases</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/pablopena/quant ai</string>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>6</integer><key>Minute</key><integer>45</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>/Users/pablopena/quant ai/data/runs/releases-launchd.log</string>
+  <key>StandardErrorPath</key><string>/Users/pablopena/quant ai/data/runs/releases-launchd.log</string>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+</dict>
+</plist>

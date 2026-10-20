@@ -28,6 +28,20 @@ launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.atlas.pipeline-daily.p
 
 Re-enable with `launchctl bootstrap gui/$(id -u) <plist>`.
 
+## Release-day ingest (optional)
+
+`atlas ingest releases` ingests the day's timed FRED releases (CPI, payrolls, retail sales,
+claims, ...) a minute after each Eastern-time release and polls for up to 30 minutes, then
+exits; `--dry-run` prints the plan. Results go to `data/runs/releases-<date>.json`. A launchd
+template that starts it on weekdays at 06:45 local is in `deploy/launchd/`; install it with:
+
+```bash
+cp "deploy/launchd/com.atlas.ingest-releases.plist" ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.atlas.ingest-releases.plist
+```
+
+If the Mac's local 06:45 is after 08:30 ET (US west coast), the first slot runs as a
+catch-up; the daily pipeline still picks everything up the next morning.
+
 ## Daily pipeline: reading a run
 
 `atlas pipeline daily` prints one line per step; the same is in the latest `data/runs/*.json`

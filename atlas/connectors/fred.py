@@ -209,6 +209,12 @@ class FredConnector:
             if not batch or offset >= int(payload.get("count", 0)):
                 return releases
 
+    async def series_release(self, source_id: str) -> int | None:
+        """The FRED release a series belongs to (None if FRED lists none)."""
+        payload = await self._get("series/release", series_id=source_id)
+        rel = payload.get("releases", [])
+        return int(rel[0]["id"]) if rel else None
+
     # ------------------------------------------------------------------ observations
     async def _observations_window(
         self, source_id: str, realtime_start: date, realtime_end: date

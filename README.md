@@ -94,6 +94,9 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   pinned data snapshot only (later data invisible), verifies the snapshot's hashes, and
   compares every view with what was published; flags a different or uncommitted code state.
   The daily pipeline and reproduce share one view-building function.
+- `atlas/releases.py` — `atlas ingest releases`: release-calendar ingestion (PRD §9) of the
+  day's timed FRED releases a minute after publication, polling up to 30 minutes; launchd
+  template in `deploy/launchd/` (not installed by default).
 - `atlas/views/track.py` — `atlas pipeline track`: frozen views scored once their horizon
   has elapsed (the live paper track, immune to hindsight).
 - `atlas/quality/drift.py` — live-vs-backtest IC monitor (alert rule `live_ic_drift`) and a
