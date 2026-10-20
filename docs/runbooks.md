@@ -88,6 +88,13 @@ next run skip regime-crossing checks once.
   default 3M budget: raise it for that run.
 - A grounding miss in an answer (`[grounding] not traceable ...`) is reported, never hidden.
 
+## Monitoring
+
+`atlas metrics` (or `GET /metrics` on the API, bearer token if set) prints Prometheus text.
+Useful alarms: `atlas_pipeline_last_run_timestamp_seconds` older than 26 hours on a weekday,
+`atlas_pipeline_last_run_ok == 0`, `atlas_source_data_age_seconds{source="fred"}` over 3 days,
+`atlas_llm_weighted_tokens_today` near `atlas_llm_daily_budget_tokens`.
+
 ## API
 
 `atlas api serve` binds `127.0.0.1:8710` (docs at `/docs`). Binding any other host requires

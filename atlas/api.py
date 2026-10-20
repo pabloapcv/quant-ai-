@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from atlas import jsonsafe
@@ -119,6 +119,15 @@ def create_app(
             return _unwrap(fn(kit.get()))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
+
+    @app.get("/metrics", dependencies=guarded, response_class=PlainTextResponse)
+    def metrics() -> PlainTextResponse:
+        from atlas.metrics import collect, render
+
+        text = render(
+            collect(data_dir, settings.config_dir, daily_budget=settings.llm_daily_token_budget)
+        )
+        return PlainTextResponse(text, media_type="text/plain; version=0.0.4")
 
     @app.get("/health")
     def health() -> dict[str, Any]:

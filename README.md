@@ -86,6 +86,10 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   frozen views, track record, portfolio, gates, analogs, scenario, series, alerts,
   snapshots, usage) plus `POST /v1/chat` (Server-Sent Events: tool calls, then the grounded
   answer); OpenAPI docs at `/docs`. Localhost only unless `ATLAS_API_TOKEN` is set.
+- `atlas/metrics.py` — Prometheus metrics (`GET /metrics`, `atlas metrics`): data age per
+  source, per-step pipeline status and duration, stale series, live-track months, Claude
+  tokens, budget and cache hit rate, alerts today, report grounding, stored documents,
+  feature PSI. Read from recorded state only, so scrapes are cheap.
 - `atlas/views/reproduce.py` — `atlas reproduce <view_id>`: rebuilds a frozen view from its
   pinned data snapshot only (later data invisible), verifies the snapshot's hashes, and
   compares every view with what was published; flags a different or uncommitted code state.

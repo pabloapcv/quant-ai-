@@ -507,6 +507,17 @@ def reproduce_cmd(view_id: str) -> None:
     raise typer.Exit(0 if rep.exact else 1)
 
 
+@app.command("metrics")
+def metrics_cmd() -> None:
+    """Operational metrics in Prometheus text format (also served at GET /metrics)."""
+    from atlas.metrics import collect, render
+
+    s = get_settings()
+    typer.echo(
+        render(collect(s.data_dir, s.config_dir, daily_budget=s.llm_daily_token_budget)), nl=False
+    )
+
+
 @app.command("usage")
 def usage(days: Annotated[int, typer.Option(help="How many days back")] = 7) -> None:
     """Claude token usage per day (weighted tokens vs the daily budget, cache hit rate)."""
