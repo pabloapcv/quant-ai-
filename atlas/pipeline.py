@@ -20,25 +20,22 @@ from typing import Any
 from atlas import jsonsafe
 from atlas.agent.usage import BudgetExceeded, make_client
 from atlas.alerts import run_alerts
-from atlas.backtest.trials import TrialLog
 from atlas.catalog import Catalog
 from atlas.connectors.base import RawStore
 from atlas.connectors.fred import FredConnector
 from atlas.connectors.kenfrench import KenFrenchConnector
 from atlas.connectors.sdmx import AGENCIES, SdmxConnector
 from atlas.ingest import IngestReport, ingest_series
-from atlas.models.expected_returns.ensemble import EnsembleConfig, walk_forward
 from atlas.models.regime.engine import RegimeEngine, data_month_for
 from atlas.pit.snapshot import create_snapshot, git_sha
 from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
 from atlas.quality.drift import backtest_ic_stats, feature_psi
 from atlas.settings import Settings
-from atlas.signals.research import ResearchContext
-from atlas.signals.universes import get_universe
 from atlas.text.fed import FedTextConnector
 from atlas.text.tone import run_tone
-from atlas.views.publish import ViewExistsError, build_views, publish, views_dir
+from atlas.views.publish import ViewExistsError, publish, views_dir
+from atlas.views.reproduce import compute_views
 from atlas.views.track import TrackRecord, score_all
 
 DEFAULT_VIEWS: tuple[tuple[str, int], ...] = (
@@ -213,24 +210,19 @@ async def run_daily(
     for universe, horizon in views:
 
         async def freeze(universe: str = universe, horizon: int = horizon) -> tuple[bool, str]:
-            uni = get_universe(universe)
-            ctx = ResearchContext(
-                panel=uni.build_panel(store),
-                universe=universe,
-                log=TrialLog(data_dir),
-                n_quantiles=3,
-                signals=uni.signals,
-                families=uni.families,
+            run, vs, panel = compute_views(
+                store,
+                data_dir,
+                universe,
+                horizon,
+                code_sha=git_sha(),
+                snapshot_id=report.snapshot_id,
             )
-            returns[universe] = ctx.panel.select("date", "asset", "ret")
-            run = walk_forward(
-                ctx, EnsembleConfig(horizon=horizon, components=uni.ensemble_components)
-            )
+            returns[universe] = panel.select("date", "asset", "ret")
             report.ic_monitor[f"{universe}:{horizon}M"] = {
                 "backtest": backtest_ic_stats(run.forecasts, BACKTEST_IC_START),
                 "live_ics": [],
             }
-            vs = build_views(run, universe, code_sha=git_sha(), snapshot_id=report.snapshot_id)
             target = (
                 views_dir(data_dir, universe, vs[0].horizon) / f"{vs[0].as_of.isoformat()}.json"
             )

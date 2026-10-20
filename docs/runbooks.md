@@ -66,6 +66,8 @@ next run skip regime-crossing checks once.
 
 - Raw payloads are archived in `data/raw/`; the store (`data/silver/`) is append-only Parquet.
 - `atlas snapshot verify <snapshot_id>` checks every pinned file still exists unchanged.
+- `atlas reproduce <view_id>` rebuilds a published view from its snapshot and reports
+  how many views match exactly (views frozen before 2026-10-19 carry no snapshot id).
 - Re-ingest one FRED series with full vintages: `atlas ingest fred <SERIES.ID>`.
 - Point-in-time questions: `atlas pit as-of <SERIES.ID> --at YYYY-MM-DD`,
   `atlas pit history <SERIES.ID> <event_date>`.

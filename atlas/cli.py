@@ -477,6 +477,36 @@ def nowcast_evaluate(
         typer.echo(f"wrote {out}")
 
 
+@app.command("reproduce")
+def reproduce_cmd(view_id: str) -> None:
+    """Rebuild a frozen view from its data snapshot and compare it with what was published."""
+    from atlas.views.reproduce import reproduce
+
+    try:
+        rep = reproduce(get_settings().data_dir, view_id, git_sha())
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
+    typer.echo(f"view {rep.view_id}: {rep.universe} {rep.month}, snapshot {rep.snapshot_id}")
+    if rep.snapshot_problems:
+        for prob in rep.snapshot_problems[:10]:
+            typer.echo(f"  snapshot problem: {prob}")
+        raise typer.Exit(1)
+    if not rep.same_code:
+        typer.echo(
+            f"  code: view from {rep.code_sha}, running {rep.current_sha}; for an exact rebuild "
+            f"run `git checkout {rep.code_sha}` first"
+        )
+    if rep.code_dirty:
+        typer.echo("  code: frozen from a working tree with uncommitted changes (not exact)")
+    typer.echo(
+        f"  {rep.matched}/{rep.total} views identical; "
+        f"max score difference {rep.max_score_diff:.2e}"
+    )
+    for d in rep.differences[:10]:
+        typer.echo(f"  {d}")
+    raise typer.Exit(0 if rep.exact else 1)
+
+
 @app.command("usage")
 def usage(days: Annotated[int, typer.Option(help="How many days back")] = 7) -> None:
     """Claude token usage per day (weighted tokens vs the daily budget, cache hit rate)."""
