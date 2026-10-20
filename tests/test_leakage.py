@@ -89,3 +89,94 @@ def test_as_of_matches_brute_force(
     got = store.as_of([S], cutoff)
     assert dict(zip(got["event_time"].to_list(), got["value"].to_list(), strict=True)) == expected
     assert got.filter(pl.col("knowledge_time") > cutoff).is_empty()
+
+
+# ------------------------------------------------------------------ shuffle test (PRD §8.6)
+def test_shuffled_target_has_no_ic(tmp_path: Path) -> None:
+    """Shuffling forward returns within each date must destroy every signal's IC.
+
+    If the backtester (or a signal) peeked at the target, a shuffled target would still
+    show skill. 40 assets x 480 months puts the noise s.d. of the mean IC near 0.007.
+    """
+    import numpy as np
+
+    from atlas.backtest.crosssection import backtest_signal
+    from atlas.backtest.trials import TrialLog
+    from atlas.signals.industry import SIGNALS, research_panel
+    from atlas.signals.research import ResearchContext, signal_panel
+    from tests.test_research import _store
+
+    store = _store(tmp_path, n_months=480, n_assets=40, start_year=1980)
+    ctx = ResearchContext(
+        panel=research_panel(store, "ind12"), universe="ind12", log=TrialLog(tmp_path)
+    )
+    rng = np.random.default_rng(0)
+    checked = 0
+    for sig in SIGNALS.values():
+        if sig.ranking_of is not None:
+            continue
+        panel = signal_panel(sig, ctx).drop_nulls(["signal", "fwd_ret"]).sort(["date", "asset"])
+        if panel.is_empty():
+            continue
+        shuffled = panel.with_columns(
+            pl.col("fwd_ret")
+            .map_batches(lambda s: pl.Series(rng.permutation(s.to_numpy())))
+            .over("date")
+        )
+        rep = backtest_signal(shuffled, sig.name, n_quantiles=3)
+        assert abs(rep.ic_mean) < 0.02, (sig.name, rep.ic_mean)
+        checked += 1
+    assert checked >= 5
+
+
+# ------------------------------------------------------------------ timestamp audit (PRD §8.6)
+def test_timestamp_audit_nothing_known_after_as_of(tmp_path: Path) -> None:
+    """Every observation a point-in-time read returns was public by the as-of cutoff."""
+    from atlas.features.macro import GROWTH
+    from atlas.features.registry import feature_matrix
+
+    rows = []
+    for m in range(36):
+        ev = date(2019 + m // 12, m % 12 + 1, 1)
+        first = datetime(ev.year, ev.month, 1, tzinfo=UTC) + timedelta(days=45)
+        rows += [(spec.series_id, ev, first, 100.0 + m) for spec in GROWTH] + [
+            (spec.series_id, ev, first + timedelta(days=300), 101.0 + m) for spec in GROWTH
+        ]
+    store = PITStore(tmp_path / "d")
+    store.write(make_obs_frame(rows))
+    cube = store.load_cube()
+    for at in (date(2019, 9, 30), date(2020, 6, 15), date(2021, 3, 31)):
+        cutoff = to_cutoff(at)
+        for spec in GROWTH:
+            got = cube.as_of(spec.series_id, at)
+            assert got.is_empty() or got["knowledge_time"].max() <= cutoff  # type: ignore[operator]
+        # the feature matrix equals one built from a store that never saw later data
+        visible = make_obs_frame([r for r in rows if r[2] <= cutoff])
+        clean = PITStore(tmp_path / f"clean_{at}")
+        clean.write(visible)
+        a = feature_matrix(cube, GROWTH, at, end_month=date(at.year, at.month, 1))
+        b = feature_matrix(clean.load_cube(), GROWTH, at, end_month=date(at.year, at.month, 1))
+        assert a.equals(b)
+
+
+def test_documents_are_point_in_time(tmp_path: Path) -> None:
+    from atlas.text.documents import DocStore, Document
+
+    store = DocStore(tmp_path)
+    for day in (date(2020, 1, 29), date(2020, 3, 15), date(2020, 4, 29)):
+        store.save(
+            Document(
+                doc_id=f"fomc-statement-{day}",
+                source="fomc",
+                kind="statement",
+                title="t",
+                url="u",
+                published_at=datetime(day.year, day.month, day.day, 18, tzinfo=UTC),
+                meeting_date=day,
+                paragraphs=["a", "b"],
+            )
+        )
+    at = datetime(2020, 3, 15, 17, 59, tzinfo=UTC)  # a minute before the March release
+    seen = list(store.iter(as_of=at))
+    assert [d.meeting_date for d in seen] == [date(2020, 1, 29)]
+    assert all(d.published_at <= at for d in seen)

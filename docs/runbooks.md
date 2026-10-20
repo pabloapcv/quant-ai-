@@ -92,6 +92,13 @@ next run skip regime-crossing checks once.
 `ATLAS_API_TOKEN`; clients then send `Authorization: Bearer <token>`. The tool cache refreshes
 hourly, so a morning pipeline run shows up without a restart.
 
+## Research discipline
+
+- New signals, components or settings are researched with `--exclude-holdout`; the
+  2021-2025 holdout is opened once per family with `atlas research holdout open --clean
+  --reason "..."`, and `atlas research holdout status` lists every opening. A reopening needs
+  `--allow-reopen` and is logged as one.
+
 ## Monthly
 
 - Check `atlas pipeline track` (live paper track) against the walk-forward figures (`atlas views evaluate`).

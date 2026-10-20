@@ -92,7 +92,15 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   feature PSI diagnostic in every run report (not an alert: see the module docstring).
 - `docs/runbooks.md` — operations: scheduled jobs, reading a pipeline run, alerts, recovery,
   evals, API.
-- `tests/test_leakage.py` — the look-ahead leakage suite (blocking in CI).
+- `atlas/backtest/holdout.py` — the locked 2021-2025 holdout (PRD §8.2): research with
+  `atlas research gates --exclude-holdout`; `atlas research holdout open --reason ...` scores
+  the ensemble and each signal on holdout months only, logs the opening
+  (`data/research/holdout_log.jsonl`) and refuses a second one. Every universe built so far
+  was developed on the full sample, so its logged opening is marked contaminated. Holdout
+  3-month ensemble IC: ind12 +0.024, ind49 +0.018, ctry_dev_lcl +0.018, fx_g10 +0.044,
+  ctry_usd -0.065, rates_dev -0.044 (all |t| < 1.2): no reliable skill in 2021-2025.
+- `tests/test_leakage.py` — the look-ahead leakage suite (blocking in CI): future-vintage
+  injection, as-of vs brute force, shuffled-target IC, timestamp audits (store, features, text).
 
 ## Quickstart
 ```bash

@@ -46,6 +46,8 @@ portfolio_app = typer.Typer(
     no_args_is_help=True, help="Model portfolio vs equal-weight benchmark (Phase 4)."
 )
 research_app = typer.Typer(no_args_is_help=True, help="Signal research & backtests (Phase 3).")
+holdout_app = typer.Typer(no_args_is_help=True, help="Locked 2021-2025 holdout (PRD §8.2).")
+research_app.add_typer(holdout_app, name="holdout")
 pipeline_app = typer.Typer(
     no_args_is_help=True, help="Scheduled pipelines and the live track record."
 )
@@ -794,9 +796,19 @@ def research_gates(
     quantiles: QuantOpt = 5,
     splits: Annotated[int, typer.Option(help="CSCV blocks (even)")] = 16,
     out: Annotated[str | None, typer.Option(help="Write full results as JSON")] = None,
+    exclude_holdout: Annotated[
+        bool, typer.Option("--exclude-holdout", help="Stop before the locked 2021-2025 holdout")
+    ] = False,
 ) -> None:
     """Run every family, then check each signal against the PRD promotion gates."""
+    from dataclasses import replace
+
+    from atlas.backtest.holdout import HOLDOUT_START
+
     ctx = _context(universe, start, cost_bps, quantiles)
+    if exclude_holdout:
+        ctx = replace(ctx, end=HOLDOUT_START)
+        typer.echo(f"research window ends before the holdout ({HOLDOUT_START})")
     suite = run_gate_suite(ctx, n_splits=splits)
     results = list(suite.gates.values())
     reports = suite.reports
@@ -827,6 +839,69 @@ def research_gates(
         ]
         Path(out).write_text(jsonsafe.dumps({"ensemble_icir": ens_icir, "gates": payload}))
         typer.echo(f"wrote {out}")
+
+
+@holdout_app.command("status")
+def holdout_status() -> None:
+    """Every logged holdout opening."""
+    from atlas.backtest.holdout import HOLDOUT_END, HOLDOUT_START, HoldoutLog
+
+    entries = HoldoutLog(get_settings().data_dir).entries()
+    typer.echo(f"holdout {HOLDOUT_START} .. {HOLDOUT_END}; {len(entries)} opening(s) logged")
+    for e in entries:
+        flags = ", ".join(f for f in ("reopening", "contaminated") if e.get(f)) or "clean"
+        ens = e.get("ensemble", {})
+        ic = ens.get("ic_mean")
+        typer.echo(
+            f"  {e['opened_at'][:16]}  {e['universe']:<13} {e['family']:<12} {flags:<24} "
+            f"ensemble IC {'n/a' if ic is None else f'{ic:+.3f}'}  ({e['reason']})"
+        )
+
+
+@holdout_app.command("open")
+def holdout_open(
+    universe: UniverseOpt = "ind12",
+    family: Annotated[str, typer.Option(help="Model family being judged")] = "ensemble_v1",
+    reason: Annotated[str, typer.Option(help="Why it is being opened now")] = "",
+    combiner: CombinerOpt = "ic_weight",
+    horizon: Annotated[int, typer.Option()] = 3,
+    allow_reopen: Annotated[
+        bool, typer.Option("--allow-reopen", help="Open again (logged as a reopening)")
+    ] = False,
+    clean: Annotated[
+        bool,
+        typer.Option(
+            "--clean", help="The family was researched with --exclude-holdout (else contaminated)"
+        ),
+    ] = False,
+) -> None:
+    """Score the ensemble and each signal on 2021-2025 only, and log the opening."""
+    from atlas.backtest.holdout import HoldoutAlreadyOpened, open_holdout
+
+    if not reason:
+        raise typer.BadParameter("--reason is required: every opening is logged with why")
+    ctx = _context(universe, None, 10.0, 3)
+    try:
+        entry = open_holdout(
+            get_settings().data_dir,
+            ctx,
+            _ensemble_config(universe, horizon, None, None, combiner),
+            family=family,
+            reason=reason,
+            code_sha=git_sha() or "unknown",
+            allow_reopen=allow_reopen,
+            clean=clean,
+        )
+    except HoldoutAlreadyOpened as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from None
+    tag = " (contaminated: developed on the full sample)" if entry["contaminated"] else ""
+    typer.echo(f"holdout opened for {universe}/{family}{tag}")
+    for k in ("months", "ic_mean", "ic_tstat", "hit_rate", "brier_improvement"):
+        if k in entry["ensemble"]:
+            typer.echo(f"  ensemble {k:<18} {_fmt(entry['ensemble'][k])}")
+    for name, st in entry["signals"].items():
+        typer.echo(f"  {name:<18} IC {st['ic_mean']:+.3f}  t {st['ic_tstat']:+.2f}")
 
 
 @research_app.command("cards")

@@ -31,6 +31,8 @@ class ResearchContext:
     n_quantiles: int = 5
     cost_bps: float = 10.0
     start: date | None = None
+    # research stops before this date: no month whose 1-month outcome reaches it (holdout)
+    end: date | None = None
     signals: dict[str, SignalDef] = field(default_factory=lambda: dict(SIGNALS))
     families: dict[str, list[SignalDef]] = field(default_factory=lambda: dict(FAMILIES))
 
@@ -39,6 +41,8 @@ def signal_panel(sig: SignalDef, ctx: ResearchContext) -> pl.DataFrame:
     panel = sig.compute(ctx.panel)
     if ctx.start is not None:
         panel = panel.filter(pl.col("date") >= ctx.start)
+    if ctx.end is not None:
+        panel = panel.filter(pl.col("date").dt.offset_by("1mo") < ctx.end)
     return panel
 
 
