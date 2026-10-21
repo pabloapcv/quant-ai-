@@ -119,6 +119,16 @@ Useful alarms: `atlas_pipeline_last_run_timestamp_seconds` older than 26 hours o
 `ATLAS_API_TOKEN`; clients then send `Authorization: Bearer <token>`. The tool cache refreshes
 hourly, so a morning pipeline run shows up without a restart.
 
+## Champion and challenger
+
+Challenger views (`gold/challengers/<version>/`) are frozen every day next to the champion's
+and never published to the assistant, alerts or reports. Promote a challenger only when, on
+the same scored live months (at least 12), its mean rank IC beats the champion's with a
+paired t-stat of 2 or more; do it as a new model version (a code change to
+`atlas/views/models.py`), never by editing frozen files. The first challenger months
+(2026-08/09) were frozen on 2026-10-21, a few days after the champion's, so they saw slightly
+more data; compare from 2026-10 onward for a strict test.
+
 ## Research discipline
 
 - New signals, components or settings are researched with `--exclude-holdout`; the

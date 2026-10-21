@@ -1324,6 +1324,11 @@ def pipeline_track() -> None:
     rec = score_all(s.data_dir, returns)
     for k, v in rec.summary().items():
         typer.echo(f"{k:<20} {_fmt(v)}")
+    from atlas.views.models import CHALLENGERS, views_root
+
+    for version in CHALLENGERS:
+        ch = score_all(s.data_dir, returns, root=views_root(s.data_dir, version)).summary()
+        typer.echo(f"challenger {version}: " + ", ".join(f"{k} {_fmt(v)}" for k, v in ch.items()))
     for m in rec.scored:
         hit = "n/a" if m.hit_rate is None else f"{m.hit_rate:.0%}"
         typer.echo(

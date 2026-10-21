@@ -56,7 +56,7 @@ def test_collect_reads_recorded_state(tmp_path: Path) -> None:
     assert "atlas_pipeline_last_run_ok 0" in text
     assert 'atlas_pipeline_step_ok{step="views:ind12:3M"} 0' in text
     assert "atlas_stale_series 1" in text
-    assert 'atlas_live_track_months{status="pending"} 6' in text
+    assert 'atlas_live_track_months{model="ens_v1",status="pending"} 6' in text
     assert 'atlas_alerts_today{status="sent"} 1' in text
     assert "atlas_llm_daily_budget_tokens 3000000" in text
     assert 'atlas_source_data_age_seconds{source="oecd"}' in text

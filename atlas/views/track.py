@@ -131,8 +131,11 @@ def score_file(path: Path, returns: pl.DataFrame) -> ScoredMonth | None:
     )
 
 
-def score_all(data_dir: Path, returns_by_universe: dict[str, pl.DataFrame]) -> TrackRecord:
-    root = data_dir / "gold" / "views"
+def score_all(
+    data_dir: Path, returns_by_universe: dict[str, pl.DataFrame], *, root: Path | None = None
+) -> TrackRecord:
+    """Score every frozen view file under ``root`` (default: the champion's ``gold/views``)."""
+    root = root or data_dir / "gold" / "views"
     scored: list[ScoredMonth] = []
     pending: list[tuple[str, str, date]] = []
     if not root.exists():

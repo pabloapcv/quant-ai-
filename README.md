@@ -99,6 +99,10 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   source, per-step pipeline status and duration, stale series, live-track months, Claude
   tokens, budget and cache hit rate, alerts today, report grounding, stored documents,
   feature PSI. Read from recorded state only, so scrapes are cheap.
+- `atlas/views/models.py` — champion/challenger (PRD §9): the published views come from
+  the champion (`ens_v1`, IC-weighted); each challenger (`ens_v1_gbm`, the gradient-boosted
+  combiner) is frozen daily from the same snapshot under `gold/challengers/<version>/` and
+  scored by the same live track (`atlas pipeline track`, metric `atlas_live_track_rank_ic`).
 - `atlas/views/reproduce.py` — `atlas reproduce <view_id>`: rebuilds a frozen view from its
   pinned data snapshot only (later data invisible), verifies the snapshot's hashes, and
   compares every view with what was published; flags a different or uncommitted code state.

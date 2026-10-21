@@ -30,6 +30,7 @@ from atlas.models.expected_returns.ensemble import EnsembleConfig, EnsembleRun, 
 from atlas.pit.store import PITStore
 from atlas.signals.research import ResearchContext
 from atlas.signals.universes import get_universe
+from atlas.views.models import CHAMPION, all_versions, model_options, views_root
 from atlas.views.publish import _comparable, build_views
 from atlas.views.schema import View
 
@@ -43,6 +44,7 @@ def compute_views(
     as_of: date | None = None,
     code_sha: str | None = None,
     snapshot_id: str | None = None,
+    version: str = CHAMPION,
 ) -> tuple[EnsembleRun, list[View], pl.DataFrame]:
     """The view model as the daily pipeline runs it (one definition for both).
 
@@ -57,13 +59,21 @@ def compute_views(
         signals=uni.signals,
         families=uni.families,
     )
-    run = walk_forward(ctx, EnsembleConfig(horizon=horizon, components=uni.ensemble_components))
+    cfg = EnsembleConfig(
+        horizon=horizon,
+        components=uni.ensemble_components,
+        version=version,
+        **model_options(version),
+    )
+    run = walk_forward(ctx, cfg)
     views = build_views(run, universe, as_of, code_sha=code_sha, snapshot_id=snapshot_id)
     return run, views, ctx.panel
 
 
 def find_view(data_dir: Path, view_id: str) -> tuple[Path, list[dict[str, Any]]] | None:
-    for path in sorted((data_dir / "gold" / "views").glob("*/*/*.json")):
+    """The frozen file holding ``view_id``, champion or challenger."""
+    paths = [p for v in all_versions() for p in sorted(views_root(data_dir, v).glob("*/*/*.json"))]
+    for path in paths:
         views = json.loads(path.read_text())
         if any(v.get("view_id") == view_id for v in views):
             return path, views
@@ -129,7 +139,12 @@ def reproduce(data_dir: Path, view_id: str, current_sha: str | None) -> Reproduc
     store = PITStore(data_dir, pinned_parts=[data_dir / f.path for f in snap.files])
     horizon = int(str(head["horizon"]).rstrip("M"))
     _, rebuilt, _ = compute_views(
-        store, data_dir, universe, horizon, as_of=date.fromisoformat(head["as_of"])
+        store,
+        data_dir,
+        universe,
+        horizon,
+        as_of=date.fromisoformat(head["as_of"]),
+        version=prov.get("model_version", CHAMPION),
     )
     old = {v["asset_id"]: v for v in frozen}
     rep.total = len(old)

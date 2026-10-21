@@ -110,9 +110,19 @@ def collect(
         )
         m.add(len(run.get("stale", [])))
         track = run.get("track", {})
-        out.append(m := Metric("atlas_live_track_months", "Frozen view-months by status", "gauge"))
-        m.add(track.get("months_scored"), status="scored")
-        m.add(track.get("months_pending"), status="pending")
+        out.append(
+            m := Metric(
+                "atlas_live_track_months", "Frozen view-months by model and status", "gauge"
+            )
+        )
+        models = {"ens_v1": track, **run.get("track_challengers", {})}
+        for model, tr in models.items():
+            m.add(tr.get("months_scored"), model=model, status="scored")
+            m.add(tr.get("months_pending"), model=model, status="pending")
+        ic = Metric("atlas_live_track_rank_ic", "Mean rank IC of scored live view-months", "gauge")
+        for model, tr in models.items():
+            ic.add(tr.get("mean_rank_ic"), model=model)
+        out.append(ic)
         psi = Metric(
             "atlas_feature_psi",
             "Population stability index of the most-shifted regime inputs (diagnostic)",

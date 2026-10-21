@@ -133,17 +133,20 @@ def _comparable(view: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def views_dir(data_dir: Path, universe: str, horizon: str) -> Path:
-    """Frozen views for one universe and horizon: ``gold/views/<universe>/<horizon>/``."""
-    return data_dir / "gold" / "views" / universe / horizon
+def views_dir(data_dir: Path, universe: str, horizon: str, *, root: Path | None = None) -> Path:
+    """Frozen views for one universe and horizon: ``gold/views/<universe>/<horizon>/``.
+
+    ``root`` replaces ``gold/views`` (challenger models freeze under their own root).
+    """
+    return (root or data_dir / "gold" / "views") / universe / horizon
 
 
-def publish(views: list[View], data_dir: Path, universe: str) -> Path:
+def publish(views: list[View], data_dir: Path, universe: str, *, root: Path | None = None) -> Path:
     """Write views once. Re-publishing identical content is a no-op; different content fails."""
     if not views:
         raise ValueError("no views to publish")
     month = views[0].as_of
-    path = views_dir(data_dir, universe, views[0].horizon) / f"{month.isoformat()}.json"
+    path = views_dir(data_dir, universe, views[0].horizon, root=root) / f"{month.isoformat()}.json"
     body = [_comparable(v.model_dump(mode="json")) for v in views]
     if path.exists():
         existing = [_comparable(e) for e in json.loads(path.read_text())]

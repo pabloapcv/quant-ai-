@@ -88,7 +88,9 @@ async def test_run_daily_without_ingest(tmp_path: Path, monkeypatch: pytest.Monk
         "quality:staleness",
         "snapshot",
         "views:ctry_dev_lcl:3M",
+        "challenger:ens_v1_gbm:ctry_dev_lcl:3M",
         "views:ind12:3M",
+        "challenger:ens_v1_gbm:ind12:3M",
         "track:score",
         "quality:drift",
         "alerts",
@@ -116,6 +118,11 @@ async def test_run_daily_without_ingest(tmp_path: Path, monkeypatch: pytest.Monk
     assert "NaN" not in run_file.read_text()
     frozen = list((data / "gold" / "views" / "ctry_dev_lcl" / "3M").glob("*.json"))
     assert len(frozen) == 1
+    assert by["challenger:ens_v1_gbm:ctry_dev_lcl:3M"].ok
+    ch = list((data / "gold" / "challengers" / "ens_v1_gbm" / "ctry_dev_lcl" / "3M").glob("*.json"))
+    assert len(ch) == 1
+    assert json.loads(ch[0].read_text())[0]["provenance"]["model_version"] == "ens_v1_gbm"
+    assert saved["track_challengers"]["ens_v1_gbm"]["months_pending"] == 1
     first = frozen[0].read_text()
 
     # A second run the same month keeps the first publication byte-for-byte.

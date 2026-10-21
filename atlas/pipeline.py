@@ -36,6 +36,7 @@ from atlas.settings import Settings
 from atlas.text.ecb import EcbTextConnector
 from atlas.text.fed import FedTextConnector
 from atlas.text.tone import run_tone
+from atlas.views.models import CHALLENGERS, views_root
 from atlas.views.publish import ViewExistsError, publish, views_dir
 from atlas.views.reproduce import compute_views
 from atlas.views.track import TrackRecord, score_all
@@ -65,6 +66,7 @@ class PipelineReport:
     stale: list[str] = field(default_factory=list)
     snapshot_id: str | None = None
     track: dict[str, Any] = field(default_factory=dict)
+    track_challengers: dict[str, dict[str, Any]] = field(default_factory=dict)
     alerts: list[dict[str, Any]] = field(default_factory=list)
     # "universe:horizon" -> {"backtest": {mean, sd, n}, "live_ics": [...] (oldest first)}
     ic_monitor: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -298,9 +300,35 @@ async def run_daily(
 
         await _timed(report, f"views:{universe}:{horizon}M", freeze)
 
+        for version in CHALLENGERS:
+
+            async def challenger(
+                universe: str = universe, horizon: int = horizon, version: str = version
+            ) -> tuple[bool, str]:
+                _, vs, _ = compute_views(
+                    store,
+                    data_dir,
+                    universe,
+                    horizon,
+                    code_sha=git_sha(),
+                    snapshot_id=report.snapshot_id,
+                    version=version,
+                )
+                root = views_root(data_dir, version)
+                try:
+                    publish(vs, data_dir, universe, root=root)
+                except ViewExistsError:
+                    return True, f"{vs[0].as_of:%Y-%m} frozen earlier (kept first)"
+                return True, f"{vs[0].as_of:%Y-%m} frozen under challengers/{version}"
+
+            await _timed(report, f"challenger:{version}:{universe}:{horizon}M", challenger)
+
     async def track() -> tuple[bool, str]:
         rec: TrackRecord = score_all(data_dir, returns)
         report.track = rec.summary()
+        for version in CHALLENGERS:
+            ch = score_all(data_dir, returns, root=views_root(data_dir, version))
+            report.track_challengers[version] = ch.summary()
         for m in sorted(rec.scored, key=lambda m: m.as_of):
             mon = report.ic_monitor.setdefault(f"{m.universe}:{m.horizon}", {"live_ics": []})
             mon.setdefault("live_ics", []).append(m.rank_ic)
