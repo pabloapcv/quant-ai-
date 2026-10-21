@@ -88,7 +88,8 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   response to factor shocks (rates, breakeven, Baa credit spread, USD, oil, VIX); unshocked
   factors move by their conditional expectation; 80% block-bootstrap bands (PRD §7.6).
 - `atlas/alerts.py` — rules in `config/alerts.yaml` (regime-probability crossings, recession
-  > 40%, HY OAS +50bp/week, VIX/VIX3M > 1, view flips, pipeline failures), evaluated at the
+  > 40%, HY OAS +50bp/week, VIX/VIX3M > 1, view flips, pipeline failures, FOMC/ECB rate
+  changes), evaluated at the
   end of every daily run with cooldown and rate limit. Logged to `data/alerts/`; ntfy and
   Slack delivery are off until configured (`atlas alerts check` runs them by hand).
 - `atlas/api.py` — `atlas api serve`: read-only FastAPI over the same tools (regime, views,

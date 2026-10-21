@@ -1314,6 +1314,32 @@ def pipeline_daily(
     raise typer.Exit(code=0 if report.ok else 1)
 
 
+@pipeline_app.command("compare")
+def pipeline_compare(
+    challenger: Annotated[str, typer.Option(help="Challenger model version")] = "ens_v1_gbm",
+) -> None:
+    """Champion vs challenger on the live track: paired IC test and promotion verdict."""
+    from atlas.views.models import CHAMPION, compare, views_root
+    from atlas.views.track import score_all
+
+    s = get_settings()
+    store = _store()
+    universes = {p.name for p in views_root(s.data_dir).glob("*") if p.is_dir()}
+    returns = {
+        u: get_universe(u).build_panel(store).select("date", "asset", "ret")
+        for u in sorted(universes)
+        if u in UNIVERSES
+    }
+    try:
+        root = views_root(s.data_dir, challenger)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
+    out = compare(score_all(s.data_dir, returns), score_all(s.data_dir, returns, root=root))
+    typer.echo(f"{CHAMPION} (champion) vs {challenger} (challenger)")
+    for k, v in out.items():
+        typer.echo(f"  {k:<16} {_fmt(v)}")
+
+
 @pipeline_app.command("track")
 def pipeline_track() -> None:
     """Live paper track record: frozen views scored once their horizon has elapsed."""

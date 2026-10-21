@@ -29,7 +29,7 @@ from atlas import jsonsafe
 
 Kind = Literal[
     "regime_prob_cross", "recession_prob", "series_change", "ratio", "view_flip",
-    "pipeline_failure", "live_ic_drift",
+    "pipeline_failure", "live_ic_drift", "cb_decision",
 ]  # fmt: skip
 
 
@@ -46,6 +46,7 @@ class Rule(BaseModel):
     include_neutral: bool = False
     window: int = 6
     sigmas: float = 2.0
+    include_holds: bool = False
 
 
 class Channels(BaseModel):
@@ -82,6 +83,8 @@ class AlertInputs(BaseModel):
     views: dict[str, list[list[dict[str, Any]]]] = Field(default_factory=dict)  # newest last
     failed_steps: list[str] = Field(default_factory=list)
     ic_monitor: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # recent central-bank statements: doc_id, bank, meeting_date, direction, sentence
+    cb_statements: list[dict[str, str]] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------- checks
@@ -233,6 +236,21 @@ def check_live_ic(rule: Rule, monitor: Mapping[str, Mapping[str, Any]]) -> list[
     return out
 
 
+def check_cb_decisions(rule: Rule, statements: Sequence[Mapping[str, str]]) -> list[Alert]:
+    out = []
+    for st in statements:
+        if st["direction"] == "hold" and not rule.include_holds:
+            continue
+        out.append(
+            Alert(
+                rule=rule.name,
+                key=f"{rule.name}:{st['doc_id']}",
+                message=f"{st['bank'].upper()} {st['meeting_date']}: {st['sentence'][:200]}",
+            )
+        )
+    return out
+
+
 def evaluate(
     cfg: AlertConfig, inputs: AlertInputs, prev_probs: Mapping[str, float], today: date
 ) -> list[Alert]:
@@ -257,6 +275,8 @@ def evaluate(
             alerts += check_pipeline(rule, inputs.failed_steps, today)
         elif rule.kind == "live_ic_drift":
             alerts += check_live_ic(rule, inputs.ic_monitor)
+        elif rule.kind == "cb_decision":
+            alerts += check_cb_decisions(rule, inputs.cb_statements)
     return alerts
 
 
@@ -285,6 +305,33 @@ def frame_to_obs(df: pl.DataFrame, lookback_days: int = 60) -> list[tuple[date, 
     start = df["event_time"].max() - timedelta(days=lookback_days)  # type: ignore[operator]
     tail = df.filter(pl.col("event_time") >= start)
     return list(zip(tail["event_time"].to_list(), tail["value"].to_list(), strict=True))
+
+
+def recent_cb_statements(data_dir: Path, now: datetime, *, days: int) -> list[dict[str, str]]:
+    """FOMC and ECB statements published in the last ``days`` days, with their decision."""
+    from atlas.text.documents import DocStore, decision
+
+    out = []
+    since = now - timedelta(days=days)
+    by_bank: dict[str, Any] = {}
+    for doc in DocStore(data_dir).iter(kind="statement", as_of=now):
+        previous = by_bank.get(doc.source)
+        by_bank[doc.source] = doc
+        if doc.published_at < since:
+            continue
+        d = decision(doc, previous)
+        if d is None:
+            continue
+        out.append(
+            {
+                "doc_id": doc.doc_id,
+                "bank": doc.source,
+                "meeting_date": doc.meeting_date.isoformat(),
+                "direction": d[0],
+                "sentence": d[1],
+            }
+        )
+    return out
 
 
 # ---------------------------------------------------------------------------- dispatch
@@ -399,6 +446,9 @@ def run_alerts(
             inputs.series[sid] = frame_to_obs(cube.as_of(sid, now))
     for h in sorted({r.horizon for r in cfg.rules if r.kind == "view_flip"}):
         inputs.views.update(load_views(data_dir, h))
+    windows = [r.days for r in cfg.rules if r.kind == "cb_decision"]
+    if windows:
+        inputs.cb_statements = recent_cb_statements(data_dir, now, days=max(windows))
 
     state = load_state(data_dir)
     alerts = evaluate(cfg, inputs, state.quadrant_probs, now.date())

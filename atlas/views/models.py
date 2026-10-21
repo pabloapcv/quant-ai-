@@ -35,3 +35,43 @@ def model_options(version: str) -> dict[str, Any]:
 
 def all_versions() -> list[str]:
     return [CHAMPION, *CHALLENGERS]
+
+
+MIN_SHARED_MONTHS = 12
+PROMOTE_TSTAT = 2.0
+
+
+def compare(champion: Any, challenger: Any) -> dict[str, Any]:
+    """Paired test of live rank IC on the view-months both models have scored.
+
+    ``champion`` / ``challenger`` are ``TrackRecord``s. The verdict follows the runbook:
+    promote only with at least ``MIN_SHARED_MONTHS`` shared months and a paired t-stat of
+    ``PROMOTE_TSTAT`` or more in the challenger's favour.
+    """
+    import math
+
+    import numpy as np
+
+    a = {(m.universe, m.horizon, m.as_of): m.rank_ic for m in champion.scored}
+    b = {(m.universe, m.horizon, m.as_of): m.rank_ic for m in challenger.scored}
+    keys = sorted(k for k in a.keys() & b.keys() if math.isfinite(a[k]) and math.isfinite(b[k]))
+    diff = np.array([b[k] - a[k] for k in keys])
+    n = len(keys)
+    out: dict[str, Any] = {"shared_months": n}
+    if n:
+        out["champion_ic"] = float(np.mean([a[k] for k in keys]))
+        out["challenger_ic"] = float(np.mean([b[k] for k in keys]))
+        out["mean_difference"] = float(diff.mean())
+    t = (
+        float(diff.mean() / (diff.std(ddof=1) / math.sqrt(n)))
+        if n > 1 and diff.std(ddof=1) > 0
+        else None
+    )
+    out["paired_tstat"] = t
+    if n < MIN_SHARED_MONTHS:
+        out["verdict"] = f"keep champion: {n} of {MIN_SHARED_MONTHS} shared scored months so far"
+    elif t is not None and t >= PROMOTE_TSTAT:
+        out["verdict"] = "challenger qualifies for promotion (as a new model version)"
+    else:
+        out["verdict"] = "keep champion: the challenger is not significantly better"
+    return out

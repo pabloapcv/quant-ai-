@@ -41,6 +41,7 @@ track record is weak, and in Model quality always give the 2021-2025 holdout res
 - Markdown. Use exactly these sections, in order, each a few sentences or a short list:
   ## Summary
   ## Macro regime
+  ## Central banks
   ## US sectors
   ## Developed markets
   ## Currencies
@@ -155,6 +156,19 @@ def gather_facts(toolkit: ToolKit, as_of: date, reports_dir: Path) -> dict[str, 
                 for s in g["signals"]
             ]
         facts["signal_gates"][u] = g
+    facts["central_banks"] = {}
+    for bank, tool in (("fomc", "get_fomc_statement"), ("ecb", "get_ecb_statement")):
+        st = get(tool, date="")
+        if "error" not in st:
+            ch = st.get("changes_since_previous") or {"added": [], "removed": []}
+            st = {
+                "meeting_date": st["meeting_date"],
+                "previous_meeting_date": st.get("previous_meeting_date"),
+                "added_sentences": ch["added"][:8],
+                "removed_sentences": ch["removed"][:8],
+                "reading": st.get("extracted_reading"),
+            }
+        facts["central_banks"][bank] = st
     # US macro analogs vs the US sector views; the red team checks calls against them.
     facts["historical_analogs"] = get("find_analogs", universe="ind12", as_of="", k=10)
     facts["changes_since_last_report"] = _changes(facts, previous_facts(reports_dir, as_of))

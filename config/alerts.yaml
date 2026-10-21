@@ -43,3 +43,8 @@ rules:
     kind: live_ic_drift
     window: 6                    # last 6 scored live months per universe/horizon
     sigmas: 2.0                  # flag live mean IC below backtest mean - 2 standard errors
+
+  - name: cb_decision
+    kind: cb_decision
+    days: 3                      # statements published in the last 3 days
+    include_holds: false         # only rate changes (set true to hear about holds too)

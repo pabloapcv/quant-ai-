@@ -61,7 +61,7 @@ alert reports the failed steps.
 | `views:<universe>:3M` | Panel could not be built (missing data) | Usually follows an ingest failure. "frozen earlier; today's recompute differs (kept first)" is **not** an error: views are write-once, revised data never rewrites a published month. |
 | `track:score` | Corrupt view file | Inspect `data/gold/views/<universe>/<h>M/`; never edit published files. |
 | `quality:drift` | Macro data missing | PSI is a diagnostic only (see `atlas/quality/drift.py` for why it is not an alert). |
-| `alerts` | Bad `config/alerts.yaml` | Validate by running `atlas alerts check`. |
+| `alerts` | Bad `config/alerts.yaml` (rules include central-bank rate changes: `cb_decision`, from FOMC and ECB statements published in the last 3 days) | Validate by running `atlas alerts check`. |
 
 Series that fail during ingest get one more try two minutes later (step `ingest:retry`);
 a step whose failures all recover is marked ok with "recovered on retry", so a transient
@@ -121,7 +121,8 @@ hourly, so a morning pipeline run shows up without a restart.
 
 ## Champion and challenger
 
-Challenger views (`gold/challengers/<version>/`) are frozen every day next to the champion's
+`atlas pipeline compare` runs the test below and prints the verdict. Challenger views
+(`gold/challengers/<version>/`) are frozen every day next to the champion's
 and never published to the assistant, alerts or reports. Promote a challenger only when, on
 the same scored live months (at least 12), its mean rank IC beats the champion's with a
 paired t-stat of 2 or more; do it as a new model version (a code change to

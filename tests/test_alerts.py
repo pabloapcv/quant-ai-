@@ -29,7 +29,7 @@ def test_repo_config_loads() -> None:
     kinds = {r.kind for r in cfg.rules}
     assert kinds == {
         "regime_prob_cross", "recession_prob", "series_change", "ratio", "view_flip",
-        "pipeline_failure", "live_ic_drift",
+        "pipeline_failure", "live_ic_drift", "cb_decision",
     }  # fmt: skip
     assert cfg.channels.ntfy_topic_url == ""  # external channels ship disabled
 
@@ -128,3 +128,57 @@ def test_live_ic_rule() -> None:
     alerts = evaluate(cfg, AlertInputs(ic_monitor=monitor), {}, NOW.date())
     assert [a.key for a in alerts] == ["ic:ind12:3M"]
     assert "below the backtest" in alerts[0].message
+
+
+def test_cb_decision_rule(tmp_path: Path) -> None:
+    from atlas.alerts import recent_cb_statements
+    from atlas.text.documents import DocStore, Document, decision
+
+    def doc(source: str, day: date, text: str) -> Document:
+        return Document(
+            doc_id=f"{source}-statement-{day}", source=source, kind="statement", title="t", url="u",
+            published_at=datetime(day.year, day.month, day.day, 18, tzinfo=UTC), meeting_date=day,
+            paragraphs=[text, "Voting for the action were A."],
+        )  # fmt: skip
+
+    store = DocStore(tmp_path)
+    old = doc(
+        "fomc",
+        date(2026, 9, 16),
+        "The Committee decided to maintain the target range for the federal funds rate at 3-1/2 to 3-3/4 percent.",
+    )
+    new = doc(
+        "fomc",
+        date(2026, 10, 28),
+        "The Committee decided to raise the target range for the federal funds rate to 3-3/4 to 4 percent.",
+    )
+    ecb = doc(
+        "ecb",
+        date(2026, 10, 29),
+        "The Governing Council today decided to keep the three key ECB interest rates unchanged.",
+    )
+    guide = doc(
+        "ecb",
+        date(2026, 10, 30),
+        "We expect to raise the key ECB interest rates in December. Inflation is high.",
+    )
+    for d in (old, new, ecb, guide):
+        store.save(d)
+    assert decision(new, old) == ("raise", "federal funds target 4.0% (+25bp)")
+    ecb_decision = decision(ecb)
+    assert ecb_decision is not None
+    assert ecb_decision[0] == "hold"
+    assert decision(guide) is None  # forward guidance is not a decision
+
+    now = datetime(2026, 10, 30, 23, tzinfo=UTC)
+    recent = recent_cb_statements(tmp_path, now, days=3)
+    assert [r["doc_id"] for r in recent] == [
+        "fomc-statement-2026-10-28",
+        "ecb-statement-2026-10-29",
+    ]
+    cfg = AlertConfig(rules=[Rule(name="cb", kind="cb_decision", days=3)])
+    alerts = evaluate(cfg, AlertInputs(cb_statements=recent), {}, now.date())
+    assert [a.key for a in alerts] == ["cb:fomc-statement-2026-10-28"]  # holds stay quiet
+    assert "FOMC 2026-10-28" in alerts[0].message
+    holds = AlertConfig(rules=[Rule(name="cb", kind="cb_decision", days=3, include_holds=True)])
+    assert len(evaluate(holds, AlertInputs(cb_statements=recent), {}, now.date())) == 2

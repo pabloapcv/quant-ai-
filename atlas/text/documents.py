@@ -98,3 +98,47 @@ def statement_changes(previous: Document, current: Document) -> dict[str, list[s
         if op in ("replace", "insert"):
             added += new[j1:j2]
     return {"added": added, "removed": removed}
+
+
+_RATE = re.compile(
+    r"(federal funds rate|key ECB interest rates|interest rates? on the main refinancing|"
+    r"deposit facility rate|key interest rates)",
+    re.I,
+)
+_VERB = re.compile(
+    r"\b(decided|decision|maintain|keep|kept|leave|left|remain|unchanged|raise|lower|reduce|"
+    r"increase|cut)",
+    re.I,
+)
+_GUIDANCE = re.compile(
+    r"\b(expects?|intends?|anticipates?|appropriate|would|could|may|likely|ready to|prepared)\b",
+    re.I,
+)
+_UP = re.compile(r"\b(raise[sd]?|increase[sd]?|hike)", re.I)
+_DOWN = re.compile(r"\b(lower(ed)?|reduce[sd]?|cut|decrease[sd]?)", re.I)
+
+
+def decision(doc: Document, previous: Document | None = None) -> tuple[str, str] | None:
+    """(direction, evidence) of the policy-rate decision a statement announces.
+
+    Direction is ``raise``, ``lower`` or ``hold``. For FOMC statements the stated federal
+    funds target is compared with the previous statement's when both are given (exact);
+    otherwise the first sentence naming the policy rate with a decision verb is read, skipping
+    forward guidance ("expects", "intends", ...). None if neither works.
+    """
+    if previous is not None and doc.source == "fomc":
+        from atlas.text.tone import text_change_bp, text_target
+
+        bp = text_change_bp(doc, previous)
+        if bp is not None:
+            direction = "raise" if bp > 0 else "lower" if bp < 0 else "hold"
+            return direction, f"federal funds target {text_target(doc)}% ({bp:+d}bp)"
+    for sent in sentences(doc.paragraphs):
+        if not (_RATE.search(sent) and _VERB.search(sent)) or _GUIDANCE.search(sent):
+            continue
+        if _UP.search(sent) and not _DOWN.search(sent):
+            return "raise", sent
+        if _DOWN.search(sent) and not _UP.search(sent):
+            return "lower", sent
+        return "hold", sent
+    return None

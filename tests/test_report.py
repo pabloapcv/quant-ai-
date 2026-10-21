@@ -128,8 +128,10 @@ def test_gather_save_and_previous(tmp_path: Path) -> None:
         "portfolios",
         "signal_gates",
         "historical_analogs",
+        "central_banks",
         "changes_since_last_report",
     }
+    assert set(facts["central_banks"]) == {"fomc", "ecb"}  # errors (no documents) reported
     assert "error" in facts["macro_regime"]  # no FRED data in this store: reported, not raised
     assert "error" in facts["historical_analogs"]
     assert "largest_tilts" in facts["portfolios"]["ctry_dev_lcl"]
