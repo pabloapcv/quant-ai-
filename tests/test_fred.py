@@ -354,3 +354,17 @@ def test_incremental_since_from_store(tmp_path: Path) -> None:
     assert since == {
         "US.CPI.CORE": date(2026, 9, 11) - INCREMENTAL_BUFFER
     }  # new series: full fetch
+
+
+async def test_maintenance_page_is_reported_clearly(router: respx.MockRouter) -> None:
+    from datetime import date as _date
+
+    from atlas.connectors.fred import FredError
+
+    html = (
+        "<!doctype html><html><head><title>Site Maintenance | St. Louis Fed</title></head></html>"
+    )
+    route(router, "releases/dates", lambda _r: httpx.Response(200, text=html))
+    async with fred(router) as conn:
+        with pytest.raises(FredError, match="down for maintenance"):
+            await conn.release_calendar(_date(2026, 11, 6), _date(2026, 11, 6))

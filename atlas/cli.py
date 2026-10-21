@@ -205,7 +205,13 @@ def ingest_releases(
             typer.echo(f"{r.at:%H:%M}Z {r.new_rows:>5} new rows after {r.attempts} tries  {r.note}")
         return report
 
-    report = asyncio.run(run())
+    from atlas.connectors.fred import FredError
+
+    try:
+        report = asyncio.run(run())
+    except FredError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from None
     if report.slots:
         out = settings.data_dir / "runs" / f"releases-{target.isoformat()}.json"
         out.parent.mkdir(parents=True, exist_ok=True)

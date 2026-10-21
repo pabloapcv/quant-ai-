@@ -135,6 +135,8 @@ class FredConnector:
         try:
             payload: dict[str, Any] = resp.json()
         except json.JSONDecodeError:
+            if b"Site Maintenance" in resp.content[:2000]:
+                raise FredError(503, "FRED is down for maintenance; try again later") from None
             raise FredError(resp.status_code, f"non-JSON response from {endpoint}") from None
         if "error_code" in payload or resp.status_code >= 400:
             raise FredError(
