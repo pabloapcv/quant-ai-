@@ -32,6 +32,7 @@ atlas = "atlas.cli:app"
 
 [dependency-groups]
 dev = [
+    "alphalens-reloaded>=0.4",
     "hypothesis>=6.100",
     "mypy>=1.11",
     "pre-commit>=3.7",
@@ -81,7 +82,7 @@ follow_imports = "skip"
 follow_untyped_imports = true
 
 [[tool.mypy.overrides]]
-module = ["aiolimiter.*", "zstandard.*", "pandera.*", "respx.*", "hmmlearn.*", "statsmodels.*", "scipy.*", "sklearn.*", "pandas.*"]
+module = ["aiolimiter.*", "zstandard.*", "pandera.*", "respx.*", "hmmlearn.*", "statsmodels.*", "scipy.*", "sklearn.*", "pandas.*", "alphalens.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

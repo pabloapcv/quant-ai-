@@ -58,6 +58,11 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   from ecb.europa.eu (1998 onward, 5-second crawl delay per the ECB's robots.txt), stored as
   `statement` and `press_conference` documents; daily sync of the recent years in the
   pipeline. Searchable with `search_documents` (bank filter) and `get_ecb_statement`.
+- `atlas/signals/library.py` — published anomalies on any return panel (12-7 momentum,
+  same-month seasonality, low beta, idiosyncratic volatility, 52-week high, MAX, skewness)
+  and macro-sensitivity tilts (rates, oil; PRD §6.4); country, FX and bond universes add their
+  own (term spread, currency momentum, carry change, relative slope, curve flattening, easing,
+  flight to quality). Phase 3 status against its exit criteria: `docs/phase3_status.md`.
 - `atlas/signals/fx.py` — G10 FX vs the US dollar (`fx_g10`, 8 currencies, 1999 onward): ECB
   month-end rates plus the carry earned at OECD 3-month rates; carry, momentum and long-term
   reversal signals through the same gates, views, portfolio and live track. Carry is the one

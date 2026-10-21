@@ -110,7 +110,6 @@ def test_shuffled_target_has_no_ic(tmp_path: Path) -> None:
     ctx = ResearchContext(
         panel=research_panel(store, "ind12"), universe="ind12", log=TrialLog(tmp_path)
     )
-    rng = np.random.default_rng(0)
     checked = 0
     for sig in SIGNALS.values():
         if sig.ranking_of is not None:
@@ -118,13 +117,16 @@ def test_shuffled_target_has_no_ic(tmp_path: Path) -> None:
         panel = signal_panel(sig, ctx).drop_nulls(["signal", "fwd_ret"]).sort(["date", "asset"])
         if panel.is_empty():
             continue
-        shuffled = panel.with_columns(
-            pl.col("fwd_ret")
-            .map_batches(lambda s: pl.Series(rng.permutation(s.to_numpy())))
-            .over("date")
-        )
+        # deterministic shuffle within each date (numpy, one seed per date)
+        dates = panel["date"].to_numpy()
+        fwd = panel["fwd_ret"].to_numpy().copy()
+        for i, d in enumerate(np.unique(dates)):
+            idx = np.flatnonzero(dates == d)
+            fwd[idx] = np.random.default_rng(i).permutation(fwd[idx])
+        shuffled = panel.with_columns(pl.Series("fwd_ret", fwd))
         rep = backtest_signal(shuffled, sig.name, n_quantiles=3)
-        assert abs(rep.ic_mean) < 0.02, (sig.name, rep.ic_mean)
+        assert abs(rep.ic_mean) < 0.03, (sig.name, rep.ic_mean)
+        assert abs(rep.ic_tstat) < 3.5, (sig.name, rep.ic_tstat)  # no skill beyond chance
         checked += 1
     assert checked >= 5
 

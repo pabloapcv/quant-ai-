@@ -121,7 +121,66 @@ def fx_panel(store: PITStore) -> pl.DataFrame:
             .alias("ret")
         )
     )
+    df = df.join(_slope_and_equity(store), on=["date", "asset"], how="left")
     return df.drop("px", "diff").filter(pl.col("ret").is_not_null())
+
+
+def _slope_and_equity(store: PITStore) -> pl.DataFrame:
+    """date, asset, slope_diff, eq_mom: relative curve slope and local equity momentum.
+
+    Both from OECD monthly data, lagged a month for publication like the rates. Equity
+    momentum is 12-1 on monthly-average share prices (skipping the latest month); markets
+    without an OECD share index (Switzerland, Sweden, Norway) have none.
+    """
+    areas = {area: cur for cur, (_, area) in CURRENCIES.items()}
+    ids = [*areas, "USA"]
+    empty = pl.DataFrame(
+        schema={"date": pl.Date, "asset": pl.String, "slope_diff": pl.Float64, "eq_mom": pl.Float64}
+    )
+    raw = _levels(store, [f"{a}.RATES.{t}" for a in ids for t in ("10Y", "3M")])
+    if raw.is_empty():
+        return empty
+    raw = raw.with_columns(
+        pl.col("series_id").str.split(".").list.first().alias("area"),
+        pl.col("series_id").str.split(".").list.last().alias("tenor"),
+    )
+    wide = raw.pivot(
+        index=["event_time", "area"], on="tenor", values="value", aggregate_function="last"
+    )
+    if not {"10Y", "3M"} <= set(wide.columns):
+        return empty
+    wide = wide.with_columns((pl.col("10Y") - pl.col("3M")).alias("slope"))
+    us = wide.filter(pl.col("area") == "USA").select("event_time", pl.col("slope").alias("us"))
+    slope = (
+        wide.filter(pl.col("area") != "USA")
+        .join(us, on="event_time", how="inner")
+        .select(
+            pl.col("event_time").alias("date"),
+            pl.col("area").replace_strict(areas).alias("asset"),
+            (pl.col("slope") - pl.col("us")).alias("slope_diff"),
+        )
+    )
+    eq = (
+        _levels(store, [f"{a}.EQUITY.SHARE" for a in areas])
+        .select(
+            pl.col("event_time").alias("date"),
+            pl.col("series_id")
+            .str.split(".")
+            .list.first()
+            .replace_strict(areas, default=None)
+            .alias("asset"),
+            pl.col("value").alias("eq"),
+        )
+        .drop_nulls("asset")
+    )
+    out = slope.join(eq, on=["date", "asset"], how="full", coalesce=True).sort(["asset", "date"])
+    lag = RATE_LAG_MONTHS
+    return out.with_columns(
+        pl.col("slope_diff").shift(lag).over("asset"),
+        (pl.col("eq").shift(lag + 1) / pl.col("eq").shift(lag + 12) - 1)
+        .over("asset")
+        .alias("eq_mom"),
+    ).select("date", "asset", "slope_diff", "eq_mom")
 
 
 # ---------------------------------------------------------------------------- signals
@@ -145,11 +204,57 @@ def carry(smooth: int = 1) -> SignalDef:
     )
 
 
+def carry_change(months: int = 12) -> SignalDef:
+    expr = (pl.col("carry") - pl.col("carry").shift(months)).over("asset")
+    return SignalDef(
+        name=f"carry_chg_{months}",
+        family="carry_change",
+        build=lambda p: p.with_columns(expr.alias("signal")),
+        params={"months": months},
+        description=f"Change in the rate differential vs the US over {months} months",
+        reference="Bakshi & Panayotov (2013); rising relative rates attract capital",
+    )
+
+
+def slope_difference() -> SignalDef:
+    return SignalDef(
+        name="slope_diff",
+        family="curve_slope",
+        build=lambda p: p.with_columns(pl.col("slope_diff").alias("signal")),
+        params={"slope": 1},
+        description="Local 10Y-3M slope minus the US one (steeper relative curve)",
+        reference="Ang & Chen (2010), yield curve predictors of foreign exchange returns",
+    )
+
+
+def equity_momentum() -> SignalDef:
+    """Not in the FX signal set: only 5 of the 8 currencies have an OECD share index, below
+    the backtester's 6-asset minimum for a cross-sectional ranking."""
+    return SignalDef(
+        name="equity_mom_12_1",
+        family="cross_asset_momentum",
+        build=lambda p: p.with_columns(pl.col("eq_mom").alias("signal")),
+        params={"lookback": 12, "skip": 1},
+        description="12-1 momentum of the local equity market (capital flows into winners)",
+        reference="Hau & Rey (2006), exchange rates, equity prices and capital flows",
+    )
+
+
 FX_SIGNALS: dict[str, SignalDef] = {
-    s.name: s for s in (carry(), momentum(12, 1), momentum(3, 0), long_term_reversal(60, 12))
+    s.name: s
+    for s in (
+        carry(),
+        momentum(12, 1),
+        momentum(3, 0),
+        long_term_reversal(60, 12),
+        carry_change(12),
+        slope_difference(),
+    )
 }
 FX_FAMILIES: dict[str, list[SignalDef]] = {
     "carry": [carry(1), carry(3), carry(12)],
     "momentum": [momentum(lb, skip) for lb, skip in ((1, 0), (3, 0), (6, 0), (12, 1), (12, 0))],
     "long_term_reversal": [long_term_reversal(lb, 12) for lb in (36, 60)],
+    "carry_change": [carry_change(m) for m in (6, 12)],
+    "curve_slope": [slope_difference()],
 }

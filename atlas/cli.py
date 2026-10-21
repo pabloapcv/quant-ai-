@@ -1035,9 +1035,18 @@ def research_cards(
     cost_bps: CostOpt = 10.0,
     quantiles: QuantOpt = 5,
     out: Annotated[str, typer.Option(help="Directory for the Markdown cards")] = "docs/signals",
+    exclude_holdout: Annotated[
+        bool, typer.Option("--exclude-holdout", help="Stop before the locked 2021-2025 holdout")
+    ] = False,
 ) -> None:
     """Regenerate one signal card per signal (PRD §14) from a full gate-suite run."""
+    from dataclasses import replace
+
+    from atlas.backtest.holdout import HOLDOUT_START
+
     ctx = _context(universe, None, cost_bps, quantiles)
+    if exclude_holdout:
+        ctx = replace(ctx, end=HOLDOUT_START)
     suite = run_gate_suite(ctx)
     paths = write_cards(
         suite, Path(out) / universe, generated=datetime.now(UTC).date(), cost_bps=cost_bps

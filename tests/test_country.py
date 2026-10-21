@@ -21,7 +21,7 @@ from atlas.signals.country import (
     yield_change,
 )
 from atlas.signals.research import ResearchContext, run_gate_suite
-from atlas.signals.universes import UNIVERSES, get_universe
+from atlas.signals.universes import COUNTRY_COMPONENTS, UNIVERSES, get_universe
 from atlas.views.publish import build_views, evaluate
 from tests.conftest import make_obs_frame, utc
 
@@ -121,7 +121,8 @@ def test_universe_registry_and_components(tmp_path: Path) -> None:
         get_universe("mars")
     u = get_universe("ctry_usd")
     assert u.asset_name("USA") == "United States"
-    assert u.ensemble_components is None
+    # pinned: research signals added later never enter the live ensemble implicitly
+    assert u.ensemble_components == COUNTRY_COMPONENTS
     ctx = ResearchContext(
         panel=pl.DataFrame(), universe="ctry_usd", log=TrialLog(tmp_path), signals=u.signals
     )
@@ -143,7 +144,9 @@ def test_country_gates_and_views(tmp_path: Path) -> None:
         families=uni.families,
     )
     suite = run_gate_suite(ctx, n_splits=4)
-    assert set(suite.gates) == set(COUNTRY_SIGNALS)
+    # signals whose inputs the synthetic store lacks (3M rates, oil, US yields) are skipped
+    assert {"mom_12_1", "cli_chg_6", "yield_fall_12", "seasonality_10y"} <= set(suite.gates)
+    assert set(suite.gates) <= set(COUNTRY_SIGNALS)
     run = walk_forward(
         ctx, EnsembleConfig(horizon=3, components=None, min_history=36, calib_min_dates=48)
     )

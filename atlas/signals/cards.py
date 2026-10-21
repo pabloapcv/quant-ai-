@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -65,6 +66,14 @@ TIMING = {
     ),
 }
 DEFAULT_TIMING = "Uses returns through the end of month t; the forecast is month t+1's return."
+
+
+INGEST_COMMANDS = {
+    "ind": "uv run atlas ingest kenfrench --all",
+    "ctr": "uv run atlas ingest sdmx --agency oecd --agency ecb",
+    "fx_": "uv run atlas ingest sdmx --agency ecb --agency oecd",
+    "rat": "uv run atlas ingest sdmx --agency oecd",
+}
 
 
 def _f(v: float | None, spec: str = ".2f") -> str:
@@ -206,6 +215,10 @@ def render_card(sig: SignalDef, suite: GateSuite, *, generated: date, cost_bps: 
             for r in sorted(family, key=lambda r: -r.sharpe_net)
         ],
         "",
+        "## Tearsheet",
+        "",
+        f"![{sig.name} tearsheet]({sig.name}.svg)",
+        "",
         "## Where it breaks",
         "",
         f"- Worst drawdown: {mdd:.0%}"
@@ -221,8 +234,8 @@ def render_card(sig: SignalDef, suite: GateSuite, *, generated: date, cost_bps: 
         "## Reproduce",
         "",
         "```bash",
-        "uv run atlas ingest kenfrench --all",
-        f"uv run atlas research gates --universe {suite.universe}",
+        INGEST_COMMANDS.get(suite.universe[:3], "uv run atlas ingest kenfrench --all"),
+        f"uv run atlas research gates --universe {suite.universe} --exclude-holdout",
         f"uv run atlas research signal {sig.name} --universe {suite.universe}",
         "```",
         "",
@@ -230,6 +243,71 @@ def render_card(sig: SignalDef, suite: GateSuite, *, generated: date, cost_bps: 
         "",
     ]
     return "\n".join(lines)
+
+
+def tearsheet_svg(rep: Any, title: str) -> str:
+    """Two-panel SVG tearsheet: growth of $1 in the net long-short, and 24-month rolling IC."""
+    ls = rep.long_short.sort("date").drop_nulls("net")
+    ic = (
+        rep.ic.sort("date")
+        .with_columns(pl.col("ic").rolling_mean(24, min_samples=12).alias("roll"))
+        .drop_nulls("roll")
+    )
+    w, h, pad, gap = 720, 340, 44, 24
+    ph = (h - 2 * pad - gap) / 2
+
+    def panel(xs: list[date], ys: list[float], top: float, log: bool, ref: float) -> list[str]:
+        if len(xs) < 2:
+            return []
+        vals = [math.log(v) if log else v for v in ys]
+        lo, hi = (
+            min([*vals, math.log(ref) if log else ref]),
+            max([*vals, math.log(ref) if log else ref]),
+        )
+        hi = hi if hi > lo else lo + 1
+        t0, t1 = xs[0].toordinal(), xs[-1].toordinal()
+
+        def xy(d: date, v: float) -> str:
+            x = pad + (d.toordinal() - t0) / max(1, t1 - t0) * (w - 2 * pad)
+            y = top + ph - (v - lo) / (hi - lo) * ph
+            return f"{x:.1f},{y:.1f}"
+
+        r = math.log(ref) if log else ref
+        ref_y = top + ph - (r - lo) / (hi - lo) * ph
+        pts = " ".join(xy(d, v) for d, v in zip(xs, vals, strict=True))
+        out = [
+            f'<line x1="{pad}" x2="{w - pad}" y1="{ref_y:.1f}" y2="{ref_y:.1f}" '
+            'stroke="#999" stroke-dasharray="4 3"/>',
+            f'<polyline fill="none" stroke="#2a6fdb" stroke-width="1.5" points="{pts}"/>',
+            f'<text x="{pad}" y="{top - 6}" font-size="12" fill="#333">',
+        ]
+        return out
+
+    parts = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}" '
+        'font-family="Helvetica, Arial, sans-serif">',
+        f'<rect width="{w}" height="{h}" fill="#fff"/>',
+        f'<text x="{pad}" y="18" font-size="14" font-weight="bold" fill="#111">{title}</text>',
+    ]
+    if ls.height > 1:
+        growth = np.cumprod(1 + ls["net"].to_numpy())
+        top: float = pad
+        parts += panel(ls["date"].to_list(), growth.tolist(), top, log=True, ref=1.0)
+        parts.append(f"Growth of $1, long-short net (log scale): ${growth[-1]:.2f}</text>")
+    if ic.height > 1:
+        top = pad + ph + gap + 10
+        parts += panel(ic["date"].to_list(), ic["roll"].to_list(), top, log=False, ref=0.0)
+        parts.append("Rank IC, 24-month rolling mean</text>")
+    years = [ls["date"][0], ls["date"][-1]] if ls.height > 1 else []
+    for i, d in enumerate(years):
+        x = pad if i == 0 else w - pad
+        anchor = "start" if i == 0 else "end"
+        parts.append(
+            f'<text x="{x}" y="{h - 8}" font-size="11" fill="#666" '
+            f'text-anchor="{anchor}">{d:%Y-%m}</text>'
+        )
+    parts.append("</svg>")
+    return "\n".join(parts) + "\n"
 
 
 def write_cards(suite: GateSuite, out_dir: Path, *, generated: date, cost_bps: float) -> list[Path]:
@@ -249,7 +327,9 @@ def write_cards(suite: GateSuite, out_dir: Path, *, generated: date, cost_bps: f
             continue  # inputs missing for this universe
         path = out_dir / f"{name}.md"
         path.write_text(render_card(sig, suite, generated=generated, cost_bps=cost_bps))
-        paths.append(path)
+        svg = out_dir / f"{name}.svg"
+        svg.write_text(tearsheet_svg(suite.reports[name], f"{name} — {suite.universe}"))
+        paths += [path, svg]
         gate, rep = suite.gates[name], suite.reports[name]
         index.append(
             f"| [`{name}`]({name}.md) | {sum(gate.checks.values())}/{len(gate.checks)} | "

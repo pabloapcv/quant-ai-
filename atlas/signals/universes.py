@@ -12,11 +12,14 @@ from atlas.signals.country import (
     COUNTRY_FAMILIES,
     COUNTRY_NAMES,
     COUNTRY_SIGNALS,
+    COUNTRY_USD_FAMILIES,
+    COUNTRY_USD_SIGNALS,
     DEVELOPED,
     country_panel,
 )
 from atlas.signals.fx import FX_FAMILIES, FX_NAMES, FX_SIGNALS, fx_panel
 from atlas.signals.industry import FAMILIES, SIGNALS, SignalDef, research_panel
+from atlas.signals.library import GENERIC_FAMILIES, GENERIC_SIGNALS, with_macro_factors
 from atlas.signals.rates import RATES_FAMILIES, RATES_NAMES, RATES_SIGNALS, rates_panel
 
 INDUSTRY_COMPONENTS = (
@@ -27,6 +30,14 @@ INDUSTRY_COMPONENTS = (
     "ltr_60_12",
     "reversal_1m",
 )
+
+# Ensemble components are fixed per universe, so adding research signals never changes the
+# live views (or the holdout-logged ensemble_v1). A new component set is a new model version.
+COUNTRY_COMPONENTS = (
+    "mom_12_1", "mom_6_1", "ltr_60_12", "low_vol_36", "cli_chg_6", "cli_level", "yield_fall_12",
+)  # fmt: skip
+FX_COMPONENTS = ("carry", "mom_12_1", "mom_3_0", "ltr_60_12")
+RATES_COMPONENTS = ("term_spread", "mom_12_1", "yield_vs_60m", "cli_fall_6")
 
 INDUSTRY12_NAMES = {  # keys are catalog asset ids (upper-case Ken French names)
     "NODUR": "Consumer non-durables",
@@ -61,13 +72,16 @@ class Universe:
         return self.asset_names.get(asset, asset)
 
 
+IND_SIGNALS: dict[str, SignalDef] = {**SIGNALS, **{s.name: s for s in GENERIC_SIGNALS}}
+IND_FAMILIES: dict[str, list[SignalDef]] = {**FAMILIES, **GENERIC_FAMILIES}
+
 UNIVERSES: dict[str, Universe] = {
     "ind12": Universe(
         "ind12",
         "12 US industries (Ken French)",
-        lambda s: research_panel(s, "ind12"),
-        SIGNALS,
-        FAMILIES,
+        lambda s: with_macro_factors(research_panel(s, "ind12"), s),
+        IND_SIGNALS,
+        IND_FAMILIES,
         INDUSTRY12_NAMES,
         "equity_industry",
         "INDUSTRY.IND12",
@@ -76,9 +90,9 @@ UNIVERSES: dict[str, Universe] = {
     "ind49": Universe(
         "ind49",
         "49 US industries (Ken French)",
-        lambda s: research_panel(s, "ind49"),
-        SIGNALS,
-        FAMILIES,
+        lambda s: with_macro_factors(research_panel(s, "ind49"), s),
+        IND_SIGNALS,
+        IND_FAMILIES,
         {},
         "equity_industry",
         "INDUSTRY.IND49",
@@ -87,22 +101,24 @@ UNIVERSES: dict[str, Universe] = {
     "ctry_usd": Universe(
         "ctry_usd",
         "14 country equity markets, USD returns (OECD, ECB FX)",
-        lambda s: country_panel(s, usd=True),
-        COUNTRY_SIGNALS,
-        COUNTRY_FAMILIES,
+        lambda s: with_macro_factors(country_panel(s, usd=True), s),
+        COUNTRY_USD_SIGNALS,
+        COUNTRY_USD_FAMILIES,
         COUNTRY_NAMES,
         "equity_country",
         "COUNTRY",
+        COUNTRY_COMPONENTS,
     ),
     "ctry_dev_lcl": Universe(
         "ctry_dev_lcl",
         "9 developed equity markets, local-currency returns (OECD)",
-        lambda s: country_panel(s, usd=False, countries=DEVELOPED),
+        lambda s: with_macro_factors(country_panel(s, usd=False, countries=DEVELOPED), s),
         COUNTRY_SIGNALS,
         COUNTRY_FAMILIES,
         COUNTRY_NAMES,
         "equity_country",
         "COUNTRY",
+        COUNTRY_COMPONENTS,
     ),
     "fx_g10": Universe(
         "fx_g10",
@@ -113,6 +129,7 @@ UNIVERSES: dict[str, Universe] = {
         FX_NAMES,
         "fx",
         "FX",
+        FX_COMPONENTS,
     ),
     "rates_dev": Universe(
         "rates_dev",
@@ -123,6 +140,7 @@ UNIVERSES: dict[str, Universe] = {
         RATES_NAMES,
         "rates",
         "RATES",
+        RATES_COMPONENTS,
     ),
 }
 

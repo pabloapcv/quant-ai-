@@ -266,7 +266,8 @@ def test_gate_suite_and_cards(tmp_path: Path) -> None:
     distinct |= {(s.name, str(sorted(s.params.items()))) for s in SIGNALS.values()}
     assert suite.n_trials == len(distinct)  # representative configs are not double-counted
     paths = write_cards(suite, tmp_path / "cards", generated=date(2026, 10, 14), cost_bps=10)
-    assert len(paths) == len(SIGNALS) + 1
+    assert len(paths) == 2 * len(SIGNALS) + 1  # a card and an SVG tearsheet each, plus README
+    assert sum(p.suffix == ".svg" for p in paths) == len(SIGNALS)
     card = (tmp_path / "cards" / "mom_12_1.md").read_text()
     for heading in (
         "## Why it should work",

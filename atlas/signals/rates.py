@@ -56,17 +56,25 @@ def rates_panel(store: PITStore) -> pl.DataFrame:
         raise ValueError("no 10Y yields — run `atlas ingest sdmx --agency oecd`")
     y3m = _levels(store, [f"{a}.RATES.3M" for a in ids], "y3m")
     cli = _levels(store, [f"{a}.CLI" for a in ids], "cli")
+    eq = _levels(store, [f"{a}.EQUITY.SHARE" for a in ids], "eq")
     grid = y10.select("date").unique().join(y10.select("asset").unique(), how="cross")
     df = (
         grid.join(y10, on=["date", "asset"], how="left")
         .join(y3m, on=["date", "asset"], how="left")
         .join(cli, on=["date", "asset"], how="left")
+        .join(eq, on=["date", "asset"], how="left")
         .sort(["asset", "date"])
+        .with_columns((pl.col("eq") / pl.col("eq").shift(12) - 1).over("asset").alias("eq_ret12"))
     )
     prev10, prev3 = pl.col("y10").shift(1), pl.col("y3m").shift(1)
     ret = (prev10 / 1200 - DURATION * (pl.col("y10") - prev10) / 100 - prev3 / 1200).over("asset")
-    df = df.with_columns(ret.alias("ret")).with_columns(
-        pl.col(c).shift(PUBLICATION_LAG_MONTHS).over("asset") for c in ("y10", "y3m", "cli")
+    df = (
+        df.with_columns(ret.alias("ret"))
+        .with_columns(
+            pl.col(c).shift(PUBLICATION_LAG_MONTHS).over("asset")
+            for c in ("y10", "y3m", "cli", "eq_ret12")
+        )
+        .drop("eq")
     )
     return df.filter(pl.col("ret").is_not_null() & pl.col("ret").is_finite())
 
@@ -115,12 +123,60 @@ def growth_slowdown(months: int = 6) -> SignalDef:
     )
 
 
+def curve_flattening(months: int = 12) -> SignalDef:
+    spread = pl.col("y10") - pl.col("y3m")
+    expr = -(spread - spread.shift(months)).over("asset")
+    return SignalDef(
+        name=f"curve_flattening_{months}",
+        family="curve_change",
+        build=lambda p: p.with_columns(expr.alias("signal")),
+        params={"months": months},
+        description=f"Flattening of the 10Y-3M curve over {months} months",
+        reference="Cochrane & Piazzesi (2005) on the term structure of bond risk premia",
+    )
+
+
+def short_rate_fall(months: int = 12) -> SignalDef:
+    expr = -(pl.col("y3m") - pl.col("y3m").shift(months)).over("asset")
+    return SignalDef(
+        name=f"short_rate_fall_{months}",
+        family="policy_easing",
+        build=lambda p: p.with_columns(expr.alias("signal")),
+        params={"months": months},
+        description=f"Fall in the 3-month rate over {months} months (easing cycle)",
+        reference="Ilmanen (2011), expected returns; bonds in easing cycles",
+    )
+
+
+def equity_weakness() -> SignalDef:
+    return SignalDef(
+        name="equity_weakness_12",
+        family="flight_to_quality",
+        build=lambda p: p.with_columns((-pl.col("eq_ret12")).alias("signal")),
+        params={"months": 12},
+        description="Weak local equity market over 12 months (flight to quality)",
+        reference="Baele, Bekaert & Inghelbrecht (2010), stock-bond return comovement",
+    )
+
+
 RATES_SIGNALS: dict[str, SignalDef] = {
-    s.name: s for s in (term_spread(), momentum(12, 1), yield_value(60), growth_slowdown(6))
+    s.name: s
+    for s in (
+        term_spread(),
+        momentum(12, 1),
+        yield_value(60),
+        growth_slowdown(6),
+        curve_flattening(12),
+        short_rate_fall(12),
+        equity_weakness(),
+    )
 }
 RATES_FAMILIES: dict[str, list[SignalDef]] = {
     "carry": [term_spread(1), term_spread(3), term_spread(12)],
     "momentum": [momentum(lb, 1) for lb in (3, 6, 12)],
     "value": [yield_value(w) for w in (36, 60)],
     "growth": [growth_slowdown(m) for m in (3, 6, 12)],
+    "curve_change": [curve_flattening(m) for m in (6, 12)],
+    "policy_easing": [short_rate_fall(m) for m in (6, 12)],
+    "flight_to_quality": [equity_weakness()],
 }

@@ -27,6 +27,7 @@ import polars as pl
 
 from atlas.pit.store import PITStore
 from atlas.signals.industry import SignalDef, long_term_reversal, low_volatility, momentum
+from atlas.signals.library import GENERIC_FAMILIES, GENERIC_SIGNALS
 
 COUNTRIES: dict[str, tuple[str, str]] = {
     "USA": ("United States", "USD"),
@@ -129,14 +130,17 @@ def country_panel(
                     - 1
                 )
                 .over("asset")
-                .alias("ret")
+                .alias("ret"),
+                (pl.col("usd_per_local") / pl.col("usd_per_local").shift(1) - 1)
+                .over("asset")
+                .alias("fx_ret"),
             )
             .drop("currency", "usd_per_local")
         )
     else:
         df = df.with_columns(pl.col("ret_lcl").alias("ret"))
 
-    for col, suffix in (("cli", "CLI"), ("y10", "RATES.10Y")):
+    for col, suffix in (("cli", "CLI"), ("y10", "RATES.10Y"), ("y3m", "RATES.3M")):
         raw = _levels(store, [f"{c}.{suffix}" for c in ids]).select(
             pl.col("event_time").alias("date"),
             pl.col("series_id").str.split(".").list.first().alias("asset"),
@@ -197,6 +201,38 @@ def yield_change(months: int = 12) -> SignalDef:
     )
 
 
+def term_spread_equity() -> SignalDef:
+    return SignalDef(
+        name="term_spread_eq",
+        family="country_curve",
+        build=lambda p: p.with_columns((pl.col("y10") - pl.col("y3m")).alias("signal")),
+        params={"spread": 1},
+        description="Local 10-year yield minus the 3-month rate (a steep curve signals growth)",
+        reference="Estrella & Mishkin (1998); term spread and future growth",
+    )
+
+
+def fx_momentum(lookback: int = 12, skip: int = 1) -> SignalDef:
+    window = lookback - skip
+    expr = (
+        pl.col("fx_ret")
+        .log1p()
+        .rolling_sum(window_size=window, min_samples=window)
+        .shift(skip)
+        .over("asset")
+    )
+    return SignalDef(
+        name=f"fx_mom_{lookback}_{skip}",
+        family="currency_momentum",
+        build=lambda p: p.with_columns(
+            (expr if "fx_ret" in p.columns else pl.lit(None, dtype=pl.Float64)).alias("signal")
+        ),
+        params={"lookback": lookback, "skip": skip},
+        description=f"{lookback}-month momentum of the local currency vs the US dollar",
+        reference="Menkhoff, Sarno, Schmeling & Schrimpf (2012), currency momentum",
+    )
+
+
 COUNTRY_SIGNALS: dict[str, SignalDef] = {
     s.name: s
     for s in (
@@ -207,8 +243,12 @@ COUNTRY_SIGNALS: dict[str, SignalDef] = {
         cli_change(6),
         cli_level(),
         yield_change(12),
+        term_spread_equity(),
+        *GENERIC_SIGNALS,
     )
 }
+# The USD universe also sees each market's currency.
+COUNTRY_USD_SIGNALS: dict[str, SignalDef] = {**COUNTRY_SIGNALS, "fx_mom_12_1": fx_momentum(12, 1)}
 
 # Momentum must skip at least one month here (averaged prices): no skip-0 configurations.
 COUNTRY_FAMILIES: dict[str, list[SignalDef]] = {
@@ -217,4 +257,12 @@ COUNTRY_FAMILIES: dict[str, list[SignalDef]] = {
     "low_volatility": [low_volatility(w) for w in (24, 36, 60)],
     "leading_indicator": [cli_change(m) for m in (3, 6, 12)] + [cli_level()],
     "rates": [yield_change(m) for m in (6, 12)],
+    "country_curve": [term_spread_equity()],
+    **{k: v for k, v in GENERIC_FAMILIES.items() if k != "intermediate_momentum"},
+    # averaged prices: intermediate momentum already skips 7 months, fine as is
+    "intermediate_momentum": GENERIC_FAMILIES["intermediate_momentum"],
+}
+COUNTRY_USD_FAMILIES: dict[str, list[SignalDef]] = {
+    **COUNTRY_FAMILIES,
+    "currency_momentum": [fx_momentum(lb, 1) for lb in (6, 12)],
 }
