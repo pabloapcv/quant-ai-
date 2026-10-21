@@ -10,6 +10,7 @@ live track record exists only for views frozen before their outcome.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import asdict, dataclass, field
@@ -78,6 +79,7 @@ class PipelineReport:
 
 
 INCREMENTAL_BUFFER = timedelta(days=3)
+RETRY_DELAY_S = 120.0  # pause before re-trying failed series once
 BACKTEST_IC_START = date(1970, 1, 1)  # same window as the reported walk-forward track record
 
 
@@ -127,29 +129,48 @@ async def run_daily(
     cat = Catalog.load(config_dir / "series.yaml")
     raw = RawStore(data_dir)
 
+    failed: dict[str, list[str]] = {}  # ingest step -> series that failed in it
+
+    def summarize(step: str, reports: list[IngestReport]) -> tuple[bool, str]:
+        bad = [r.series_id for r in reports if not r.ok]
+        if bad:
+            failed[step] = bad
+        return _summarize(reports)
+
+    def fred_key() -> str:
+        return settings.fred_api_key.get_secret_value() if settings.fred_api_key else ""
+
+    def connector(source: str) -> Any:
+        if source == "fred":
+            since = incremental_since(PITStore(data_dir), [x.id for x in cat.by_source("fred")])
+            return FredConnector(
+                fred_key(),
+                raw_store=raw,
+                max_calls_per_minute=settings.fred_max_calls_per_minute,
+                since=since,
+            )
+        if source == "kenfrench":
+            return KenFrenchConnector(raw_store=raw)
+        return SdmxConnector(source, raw_store=raw)
+
     if ingest:
 
         async def fred() -> tuple[bool, str]:
             key = settings.fred_api_key.get_secret_value() if settings.fred_api_key else ""
             if not key:
                 return False, "skipped: no FRED key (ATLAS_FRED_API_KEY)"
-            since = incremental_since(PITStore(data_dir), [x.id for x in cat.by_source("fred")])
-            async with FredConnector(
-                key,
-                raw_store=raw,
-                max_calls_per_minute=settings.fred_max_calls_per_minute,
-                since=since,
-            ) as conn:
-                return _summarize(
-                    await ingest_series(cat.by_source("fred"), conn, PITStore(data_dir))
+            async with connector("fred") as conn:
+                return summarize(
+                    "ingest:fred",
+                    await ingest_series(cat.by_source("fred"), conn, PITStore(data_dir)),
                 )
 
         async def kenfrench() -> tuple[bool, str]:
-            async with KenFrenchConnector(raw_store=raw) as conn:
+            async with connector("kenfrench") as conn:
                 reports = await ingest_series(
                     cat.by_source("kenfrench"), conn, PITStore(data_dir), concurrency=1
                 )
-            return _summarize(reports)
+            return summarize("ingest:kenfrench", reports)
 
         async def fed_text() -> tuple[bool, str]:
             async with FedTextConnector(data_dir) as conn:
@@ -175,13 +196,39 @@ async def run_daily(
         for agency in sorted(AGENCIES):
 
             async def sdmx(agency: str = agency) -> tuple[bool, str]:
-                async with SdmxConnector(agency, raw_store=raw) as conn:
+                async with connector(agency) as conn:
                     reports = await ingest_series(
                         cat.by_source(agency), conn, PITStore(data_dir), concurrency=1
                     )
-                return _summarize(reports)
+                return summarize(f"ingest:{agency}", reports)
 
             await _timed(report, f"ingest:{agency}", sdmx)
+
+        async def retry() -> tuple[bool, str]:
+            """One more try for series that failed (sources have transient 5xx errors)."""
+            if not failed:
+                return True, "nothing to retry"
+            await asyncio.sleep(RETRY_DELAY_S)
+            recovered: list[str] = []
+            still: list[str] = []
+            for step_name, ids in failed.items():
+                specs = [cat.get(i) for i in ids]
+                async with connector(specs[0].source) as conn:
+                    reps = await ingest_series(specs, conn, PITStore(data_dir), concurrency=1)
+                ok_ids = [r.series_id for r in reps if r.ok]
+                bad = [r.series_id for r in reps if not r.ok]
+                recovered += ok_ids
+                still += bad
+                step = next(st for st in report.steps if st.name == step_name)
+                if not bad:
+                    step.ok = True
+                    step.detail += f"; recovered on retry: {', '.join(ok_ids)}"
+            detail = f"{len(recovered)} recovered"
+            if still:
+                detail += f"; still failing: {', '.join(still[:8])}"
+            return not still, detail
+
+        await _timed(report, "ingest:retry", retry)
 
     store = PITStore(data_dir)
 

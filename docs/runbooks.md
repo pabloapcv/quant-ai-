@@ -63,7 +63,10 @@ alert reports the failed steps.
 | `quality:drift` | Macro data missing | PSI is a diagnostic only (see `atlas/quality/drift.py` for why it is not an alert). |
 | `alerts` | Bad `config/alerts.yaml` | Validate by running `atlas alerts check`. |
 
-Rerun without network: `atlas pipeline daily --skip-ingest`.
+Series that fail during ingest get one more try two minutes later (step `ingest:retry`);
+a step whose failures all recover is marked ok with "recovered on retry", so a transient
+5xx from a source no longer fails the run. Rerun without network:
+`atlas pipeline daily --skip-ingest`.
 
 ## Alerts
 

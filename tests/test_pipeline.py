@@ -189,3 +189,41 @@ def test_cli_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     finally:
         get_settings.cache_clear()
     _ = np
+
+
+async def test_failed_series_are_retried_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import atlas.pipeline as pl_mod
+    from atlas.ingest import IngestReport
+    from atlas.text.ecb import EcbTextConnector
+    from atlas.text.fed import FedTextConnector
+
+    calls: dict[str, int] = {}
+
+    async def flaky(specs: list[object], *_a: object, **_k: object) -> list[IngestReport]:
+        out = []
+        for spec in specs:
+            sid = spec.id  # type: ignore[attr-defined]
+            calls[sid] = calls.get(sid, 0) + 1
+            fail = sid == "FX.EURCNY" and calls[sid] == 1  # a transient 500 on the first try
+            out.append(IngestReport(sid, error="HTTP 500" if fail else None))
+        return out
+
+    async def no_docs(*_a: object, **_k: object) -> dict[str, object]:
+        return {"releases": 0, "new": 0, "skipped": 0, "pages": 0, "failed": []}
+
+    monkeypatch.setattr(pl_mod, "ingest_series", flaky)
+    monkeypatch.setattr(pl_mod, "RETRY_DELAY_S", 0.0)
+    monkeypatch.setattr(FedTextConnector, "sync", no_docs)
+    monkeypatch.setattr(EcbTextConnector, "sync", no_docs)
+    monkeypatch.delenv("ATLAS_SLACK_WEBHOOK_URL", raising=False)
+    data = tmp_path / "data"
+    _country_store(data)
+    rep = await run_daily(Settings(data_dir=data, config_dir=REPO / "config"), views=())
+    by = {s.name: s for s in rep.steps}
+    assert calls["FX.EURCNY"] == 2
+    assert by["ingest:ecb"].ok
+    assert "recovered on retry: FX.EURCNY" in by["ingest:ecb"].detail
+    assert by["ingest:retry"].ok
+    assert by["ingest:retry"].detail.startswith("1 recovered")
