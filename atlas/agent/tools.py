@@ -662,6 +662,9 @@ class ToolKit:
             "text": cur.paragraphs,
             "previous_meeting_date": prev.meeting_date.isoformat() if prev else None,
             "changes_since_previous": statement_changes(prev, cur) if prev else None,
+            "extracted_reading": None
+            if (tone := load_tones(self.data_dir, "ecb").get(cur.doc_id)) is None
+            else tone.model_dump(exclude={"doc_id", "model", "text_change_bp"}),
             "press_conference_opening": qa_doc.paragraphs[:6] if qa_doc else None,
             "press_conference_paragraphs": len(qa_doc.paragraphs) if qa_doc else 0,
         }

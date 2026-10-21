@@ -238,7 +238,10 @@ async def run_daily(
 
         async def tone() -> tuple[bool, str]:
             try:
-                out = run_tone(data_dir, make_client(settings, "extract"))
+                client = make_client(settings, "extract")
+                fomc = run_tone(data_dir, client)
+                ecb = run_tone(data_dir, client, bank="ecb")
+                out = {k: fomc[k] + ecb[k] for k in ("extracted", "failed")}
             except BudgetExceeded as exc:
                 return False, str(exc)
             except Exception as exc:  # no Anthropic credentials: skip, data still flows

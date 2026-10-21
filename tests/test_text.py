@@ -261,3 +261,57 @@ async def test_connector_sync_and_tools(tmp_path: Path) -> None:
     res: Any = kit.search_documents("financial markets strains", "fomc", "any", "2008-04-10", 5)
     assert res["passages"][0]["kind"] == "minutes"
     assert all(p["published"] <= "2008-04-10" for p in res["passages"])
+
+
+def test_ecb_tone_check_and_prompt() -> None:
+    from atlas.text.tone import ECB_PROMPT, PROMPTS, ecb_change_bp
+
+    def ecb(text: str) -> Document:
+        d = _doc(date(2024, 6, 6), [text, "Inflation has eased."])
+        return d.model_copy(update={"source": "ecb", "doc_id": "ecb-statement-2024-06-06"})
+
+    assert (
+        ecb_change_bp(
+            ecb(
+                "Today the Governing Council decided to lower the three key ECB interest rates by 25 basis points."
+            )
+        )
+        == -25
+    )
+    assert (
+        ecb_change_bp(
+            ecb(
+                "The Governing Council today decided to raise the three key ECB interest rates by 50 basis points."
+            )
+        )
+        == 50
+    )
+    assert (
+        ecb_change_bp(
+            ecb(
+                "The Governing Council today decided to keep the three key ECB interest rates unchanged."
+            )
+        )
+        == 0
+    )
+    assert ecb_change_bp(ecb("We expect to raise the key ECB interest rates later.")) is None
+    assert PROMPTS["ecb"] is ECB_PROMPT
+
+    reply = '{"action": "cut", "change_bp": -25, "stance": -1, "balance_sheet": "shrinking", "dissents": 0, "summary": "s"}'
+    seen: dict[str, Any] = {}
+
+    def create(**kw: Any) -> Any:
+        seen.update(kw)
+        return SimpleNamespace(model="h", content=[SimpleNamespace(type="text", text=reply)])
+
+    client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create)))
+    tone = extract(
+        client,
+        ecb(
+            "Today the Governing Council decided to lower the three key ECB interest rates by 25 basis points."
+        ),
+        None,
+    )
+    assert tone is not None
+    assert tone.consistent is True
+    assert "European Central Bank" in seen["system"]

@@ -1,4 +1,8 @@
-"""FOMC statement tone extraction (PRD §6.6): Claude Haiku reads each statement once.
+"""Central-bank statement tone extraction (PRD §6.6): Claude Haiku reads each statement once.
+
+FOMC and ECB statements, each with its own prompt (the ECB publishes no votes and decides on
+three key rates) and its own deterministic check: FOMC against the federal funds target
+stated in consecutive statements, ECB against the size stated in the decision sentence.
 
 Output per statement (stored in ``data/text/fomc/tone/<doc_id>.json``, never recomputed):
 the policy action and size, a hawkish/dovish stance score from -2 (very dovish) to +2 (very
@@ -37,6 +41,24 @@ the decision, judged against the previous statement),
 
 Use only the statement text. "other" is for emergency or liquidity statements without a \
 rate decision."""
+
+ECB_PROMPT = """You read European Central Bank monetary policy statements and extract facts. \
+You get the current statement and, when available, the previous one. Reply with one JSON \
+object only:
+
+{"action": "hike" | "cut" | "hold" | "other",
+ "change_bp": integer (change in the key ECB interest rates in basis points; 0 for hold),
+ "stance": integer -2..2 (dovish -2 .. hawkish +2: the policy signal of the language and \
+the decision, judged against the previous statement),
+ "balance_sheet": "expanding" | "shrinking" | "steady" | "not_mentioned" (asset purchases \
+such as the APP or PEPP),
+ "dissents": integer (0: the ECB does not publish votes),
+ "summary": "one sentence on what changed and why it matters"}
+
+Use only the statement text. "other" is for statements without a rate decision."""
+PROMPTS = {"fomc": PROMPT, "ecb": ECB_PROMPT}
+_ECB_BP = re.compile(r"(\d+)\s*basis points?", re.I)
+_ECB_PP = re.compile(r"(0[.,]\d+)\s*percentage points?", re.I)
 
 _NUM = r"\d+(?:-\d/\d)?|\d/\d"
 _TARGET = re.compile(
@@ -89,6 +111,32 @@ def text_change_bp(doc: Document, previous: Document | None) -> int | None:
     return round((cur - prev) * 100)
 
 
+def ecb_change_bp(doc: Document) -> int | None:
+    """Rate change the ECB decision sentence states (None when it states no size)."""
+    from atlas.text.documents import decision
+
+    d = decision(doc)
+    if d is None:
+        return None
+    direction, sentence = d
+    if direction == "hold":
+        return 0
+    m = _ECB_BP.search(sentence)
+    size = int(m.group(1)) if m else None
+    if size is None and (pm := _ECB_PP.search(sentence)):
+        size = round(float(pm.group(1).replace(",", ".")) * 100)
+    if size is None:
+        return None
+    return size if direction == "raise" else -size
+
+
+def stated_change_bp(doc: Document, previous: Document | None) -> int | None:
+    """The deterministic check value for a statement, per bank."""
+    if doc.source == "ecb":
+        return ecb_change_bp(doc)
+    return text_change_bp(doc, previous)
+
+
 def _consistent(tone: Tone) -> bool:
     found = tone.text_change_bp
     if found is None:
@@ -120,25 +168,26 @@ def extract(
     resp = client.beta.messages.create(
         model=model,
         max_tokens=1000,
-        system=PROMPT,
+        system=PROMPTS.get(doc.source, PROMPT),
         messages=[{"role": "user", "content": user}],
     )
     text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
     tone = parse_tone(text, doc.doc_id, getattr(resp, "model", model))
     if tone is None:
         return None
-    tone.text_change_bp = text_change_bp(doc, previous)
+    tone.text_change_bp = stated_change_bp(doc, previous)
     tone.consistent = _consistent(tone)
     return tone
 
 
-def tone_dir(data_dir: Path) -> Path:
-    return data_dir / "text" / "fomc" / "tone"
+def tone_dir(data_dir: Path, bank: str = "fomc") -> Path:
+    return data_dir / "text" / bank / "tone"
 
 
-def load_tones(data_dir: Path) -> dict[str, Tone]:
+def load_tones(data_dir: Path, bank: str = "fomc") -> dict[str, Tone]:
     return {
-        p.stem: Tone.model_validate_json(p.read_text()) for p in tone_dir(data_dir).glob("*.json")
+        p.stem: Tone.model_validate_json(p.read_text())
+        for p in tone_dir(data_dir, bank).glob("*.json")
     }
 
 
@@ -149,11 +198,12 @@ def run_tone(
     limit: int | None = None,
     model: str = EXTRACT_MODEL,
     on_done: Callable[[Tone], None] | None = None,
+    bank: str = "fomc",
 ) -> dict[str, int]:
-    """Extract tone for every statement that has none yet (oldest first)."""
-    docs = list(DocStore(data_dir).iter(source="fomc", kind="statement"))
-    have = set(load_tones(data_dir))
-    folder = tone_dir(data_dir)
+    """Extract tone for every ``bank`` statement that has none yet (oldest first)."""
+    docs = list(DocStore(data_dir).iter(source=bank, kind="statement"))
+    have = set(load_tones(data_dir, bank))
+    folder = tone_dir(data_dir, bank)
     folder.mkdir(parents=True, exist_ok=True)
     done = failed = 0
     for i, doc in enumerate(docs):
@@ -169,21 +219,21 @@ def run_tone(
         done += 1
         if on_done:
             on_done(tone)
-    rechecked = recheck(data_dir)
+    rechecked = recheck(data_dir, bank)
     return {"extracted": done, "failed": failed, "statements": len(docs), "inconsistent": rechecked}
 
 
-def recheck(data_dir: Path) -> int:
+def recheck(data_dir: Path, bank: str = "fomc") -> int:
     """Re-run the deterministic size check on every stored reading; returns inconsistencies."""
-    docs = list(DocStore(data_dir).iter(source="fomc", kind="statement"))
-    folder = tone_dir(data_dir)
+    docs = list(DocStore(data_dir).iter(source=bank, kind="statement"))
+    folder = tone_dir(data_dir, bank)
     bad = 0
     for i, doc in enumerate(docs):
         path = folder / f"{doc.doc_id}.json"
         if not path.exists():
             continue
         tone = Tone.model_validate_json(path.read_text())
-        tone.text_change_bp = text_change_bp(doc, docs[i - 1] if i else None)
+        tone.text_change_bp = stated_change_bp(doc, docs[i - 1] if i else None)
         tone.consistent = _consistent(tone)
         bad += not tone.consistent
         path.write_text(tone.model_dump_json(indent=2))

@@ -518,6 +518,7 @@ def text_show(date_: Annotated[str, typer.Option("--date", help="YYYY-MM-DD")] =
 @text_app.command("tone")
 def text_tone(
     limit: Annotated[int | None, typer.Option(help="At most N statements")] = None,
+    bank: Annotated[str, typer.Option(help="fomc | ecb")] = "fomc",
 ) -> None:
     """Extract action / stance from statements without a reading yet (Claude Haiku, metered)."""
     from atlas.agent.usage import BudgetExceeded, make_client
@@ -529,6 +530,7 @@ def text_tone(
             s.data_dir,
             make_client(s, "extract"),
             limit=limit,
+            bank=bank,
             on_done=lambda t: typer.echo(
                 f"{t.doc_id}: {t.action} {t.change_bp:+d}bp stance {t.stance:+d}"
                 f"{'' if t.consistent else '  (size disagrees with text)'}"
