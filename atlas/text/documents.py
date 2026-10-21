@@ -16,14 +16,14 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-Kind = Literal["statement", "minutes"]
-KINDS: tuple[Kind, ...] = ("statement", "minutes")
+Kind = Literal["statement", "minutes", "press_conference"]
+KINDS: tuple[Kind, ...] = ("statement", "minutes", "press_conference")
 _SENTENCE = re.compile(r"(?<=[.;])\s+(?=[A-Z])")
 
 
 class Document(BaseModel):
-    doc_id: str  # e.g. "fomc-statement-2025-09-17"
-    source: str  # "fomc"
+    doc_id: str  # e.g. "fomc-statement-2025-09-17", "ecb-press_conference-2025-12-18"
+    source: str  # "fomc" | "ecb"
     kind: Kind
     title: str
     url: str

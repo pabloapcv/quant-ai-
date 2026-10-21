@@ -54,6 +54,7 @@ alert reports the failed steps.
 | `ingest:fred` | Key missing/invalid, FRED down, or rate limit | Check `ATLAS_FRED_API_KEY`; rerun later. Incremental fetches resume from the last release minus 3 days, so a missed day self-heals. |
 | `ingest:kenfrench`, `ingest:ecb/oecd/bis/imf` | Source outage or format change | Rerun the single source (`atlas ingest kenfrench`, `atlas ingest sdmx --agency <agency>`). These sources only publish current values: a missed day is a day of point-in-time history lost, not recoverable later. |
 | `ingest:fed_text` | federalreserve.gov unreachable or page layout changed | Rerun `atlas text sync`; a parse failure lists the page. Stored documents are never refetched or rewritten. |
+| `ingest:ecb_text` | ecb.europa.eu unreachable or page layout changed | The daily sync covers this and last year; `atlas text sync --bank ecb --all-years` refetches anything missing since 1998 (about 25 minutes at the ECB's crawl delay). |
 | `text:tone` | Budget reached, or a reply that did not parse | `atlas text tone` retries statements without a reading. "skipped" means no Anthropic credentials. |
 | `quality:staleness` | Never fails; lists stale series | `US.SENTIMENT.UMICH` is expected (FRED's licence delay). Anything else stale for days: check the source. |
 | `snapshot` | Disk or permission problem | Free disk; snapshots pin data + config + code SHA. |

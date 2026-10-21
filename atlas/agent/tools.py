@@ -181,18 +181,36 @@ TOOL_SPECS: list[dict[str, Any]] = [
     {
         "name": "search_documents",
         "description": (
-            "Search FOMC statements and minutes (federalreserve.gov, 2006 onward) for passages "
-            "matching a query, as published by the as-of date. Returns the best passages with "
-            "document, meeting date and link. Use it for what the Fed said, not for numbers."
+            "Search central-bank text for passages matching a query, as published by the "
+            "as-of date: FOMC statements and minutes (2006 onward) and ECB monetary policy "
+            "statements and press-conference Q&A transcripts (1998 onward). Returns the best "
+            "passages with bank, document, meeting date and link. Use it for what central "
+            "banks said, not for numbers."
         ),
         "input_schema": _schema(
             {
                 "query": {"type": "string"},
-                "kind": {"type": "string", "enum": ["any", "statement", "minutes"]},
+                "bank": {"type": "string", "enum": ["any", "fomc", "ecb"]},
+                "kind": {
+                    "type": "string",
+                    "enum": ["any", "statement", "minutes", "press_conference"],
+                },
                 "as_of": {"type": "string", "description": "YYYY-MM-DD; empty for today"},
                 "k": {"type": "integer", "description": "Passages to return, 1-12"},
             },
-            ["query", "kind", "as_of", "k"],
+            ["query", "bank", "kind", "as_of", "k"],
+        ),
+    },
+    {
+        "name": "get_ecb_statement",
+        "description": (
+            "The ECB monetary policy statement in force at a date (the latest on or before "
+            "it): full text, sentences added and removed since the previous meeting, and the "
+            "opening of the press-conference Q&A."
+        ),
+        "input_schema": _schema(
+            {"date": {"type": "string", "description": "YYYY-MM-DD; empty for the latest"}},
+            ["date"],
         ),
     },
     {
@@ -230,6 +248,7 @@ class ToolKit:
             "run_scenario": self.run_scenario,
             "search_documents": self.search_documents,
             "get_fomc_statement": self.get_fomc_statement,
+            "get_ecb_statement": self.get_ecb_statement,
         }
         self._text_index: BM25Index | None = None
 
@@ -571,9 +590,11 @@ class ToolKit:
         d = date.fromisoformat(value)
         return datetime(d.year, d.month, d.day, 23, 59, 59, tzinfo=UTC)
 
-    def search_documents(self, query: str, kind: str, as_of: str, k: int) -> dict[str, Any]:
+    def search_documents(
+        self, query: str, bank: str, kind: str, as_of: str, k: int
+    ) -> dict[str, Any]:
         if self._text_index is None:
-            docs = list(DocStore(self.data_dir).iter(source="fomc"))
+            docs = list(DocStore(self.data_dir).iter())
             if not docs:
                 return {"error": "no documents stored: run `atlas text sync`"}
             self._text_index = BM25Index(docs)
@@ -582,12 +603,14 @@ class ToolKit:
             k=max(1, min(int(k), 12)),
             as_of=self._as_of_end(as_of),
             kind=None if kind == "any" else kind,
+            source=None if bank == "any" else bank,
         )
         return {
             "query": query,
             "as_of": as_of or "latest",
             "passages": [
                 {
+                    "bank": h.passage.doc.source,
                     "document": h.passage.doc.doc_id,
                     "kind": h.passage.doc.kind,
                     "meeting_date": h.passage.doc.meeting_date.isoformat(),
@@ -622,4 +645,23 @@ class ToolKit:
             "extracted_reading": None
             if tone is None
             else tone.model_dump(exclude={"doc_id", "model", "text_change_bp"}),
+        }
+
+    def get_ecb_statement(self, date: str) -> dict[str, Any]:
+        store = DocStore(self.data_dir)
+        at = self._as_of_end(date)
+        docs = list(store.iter(source="ecb", kind="statement", as_of=at))
+        if not docs:
+            return {"error": f"no ECB statement stored on or before {date or 'today'}"}
+        cur, prev = docs[-1], (docs[-2] if len(docs) > 1 else None)
+        qa = [d for d in store.iter(source="ecb", kind="press_conference", as_of=at)]
+        qa_doc = next((d for d in reversed(qa) if d.meeting_date == cur.meeting_date), None)
+        return {
+            "meeting_date": cur.meeting_date.isoformat(),
+            "url": cur.url,
+            "text": cur.paragraphs,
+            "previous_meeting_date": prev.meeting_date.isoformat() if prev else None,
+            "changes_since_previous": statement_changes(prev, cur) if prev else None,
+            "press_conference_opening": qa_doc.paragraphs[:6] if qa_doc else None,
+            "press_conference_paragraphs": len(qa_doc.paragraphs) if qa_doc else 0,
         }

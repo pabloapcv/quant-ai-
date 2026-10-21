@@ -121,6 +121,7 @@ class BM25Index:
         k: int = 8,
         as_of: datetime | None = None,
         kind: str | None = None,
+        source: str | None = None,
         per_doc: int = 2,
     ) -> list[Hit]:
         """Top ``k`` passages; at most ``per_doc`` from one document."""
@@ -130,6 +131,8 @@ class BM25Index:
             if as_of is not None and p.doc.published_at > as_of:
                 continue
             if kind and p.doc.kind != kind:
+                continue
+            if source and p.doc.source != source:
                 continue
             tf = self._tf[i]
             norm = K1 * (1 - B + B * self._len[i] / self._avg) if self._avg else K1

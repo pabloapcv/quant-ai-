@@ -258,6 +258,6 @@ async def test_connector_sync_and_tools(tmp_path: Path) -> None:
     latest = kit.get_fomc_statement("")
     assert any("25 basis points" in s for s in latest["changes_since_previous"]["added"])
     assert latest["extracted_reading"]["stance"] == -1
-    res: Any = kit.search_documents("financial markets strains", "any", "2008-04-10", 5)
+    res: Any = kit.search_documents("financial markets strains", "fomc", "any", "2008-04-10", 5)
     assert res["passages"][0]["kind"] == "minutes"
     assert all(p["published"] <= "2008-04-10" for p in res["passages"])

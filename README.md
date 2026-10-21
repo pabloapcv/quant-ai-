@@ -31,8 +31,8 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `atlas/backtest/gates.py` — PRD §8.4 promotion gates; `atlas/models/regime/market.py`
   gives the trend x volatility market regimes the regime gate uses.
 - `atlas/agent/` — the research assistant (Phase 6): Claude (`claude-opus-5-5`) calls the
-  quant engine through 12 tools (views, track records, gates, portfolios, series, regime,
-  historical analogs, scenarios, FOMC document search and statements);
+  quant engine through 13 tools (views, track records, gates, portfolios, series, regime,
+  historical analogs, scenarios, central-bank document search, FOMC and ECB statements);
   a deterministic guard checks every number in the answer against the tool results and
   gives Claude one repair turn. Needs `ANTHROPIC_API_KEY` or an `ant auth login` profile.
 - `atlas/agent/report.py` — `atlas report weekly`: engine facts gathered deterministically,
@@ -54,6 +54,10 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
   walk-forward gradient-boosted ranker on the component z-scores (PRD §7.2's LightGBM ranker,
   via scikit-learn). Better than the IC-weighted default on 3 of 6 universes, worse on 3, so
   the default is unchanged; the comparison table is in the ensemble module's docstring.
+- `atlas/text/ecb.py` — ECB monetary policy statements and press-conference Q&A transcripts
+  from ecb.europa.eu (1998 onward, 5-second crawl delay per the ECB's robots.txt), stored as
+  `statement` and `press_conference` documents; daily sync of the recent years in the
+  pipeline. Searchable with `search_documents` (bank filter) and `get_ecb_statement`.
 - `atlas/signals/fx.py` — G10 FX vs the US dollar (`fx_g10`, 8 currencies, 1999 onward): ECB
   month-end rates plus the carry earned at OECD 3-month rates; carry, momentum and long-term
   reversal signals through the same gates, views, portfolio and live track. Carry is the one

@@ -432,25 +432,43 @@ def regime_analogs(
 
 @text_app.command("sync")
 def text_sync(
-    limit: Annotated[int | None, typer.Option(help="At most N new documents")] = None,
+    bank: Annotated[str, typer.Option(help="fomc | ecb | all")] = "all",
+    all_years: Annotated[
+        bool, typer.Option("--all-years", help="ECB: whole archive from 1998 (about 25 min)")
+    ] = False,
+    limit: Annotated[int | None, typer.Option(help="At most N new documents per bank")] = None,
 ) -> None:
-    """Fetch FOMC statements and minutes not stored yet (1 request/second)."""
+    """Fetch central-bank documents not stored yet (polite: 1/s Fed, 1 per 5 s ECB)."""
+    from atlas.text.ecb import EcbTextConnector
     from atlas.text.fed import FedTextConnector
 
-    async def go() -> dict[str, Any]:
-        async with FedTextConnector(get_settings().data_dir) as conn:
-            return await conn.sync(limit=limit)
+    if bank not in ("fomc", "ecb", "all"):
+        raise typer.BadParameter("bank must be fomc, ecb or all")
+    data_dir = get_settings().data_dir
 
-    out = asyncio.run(go())
-    typer.echo(f"{out['new']} new, {out['skipped']} skipped of {out['releases']} releases")
-    for f in out["failed"][:10]:
-        typer.echo(f"  failed: {f}")
+    async def go() -> list[tuple[str, dict[str, Any]]]:
+        out = []
+        if bank in ("fomc", "all"):
+            async with FedTextConnector(data_dir) as fed:
+                out.append(("fomc", await fed.sync(limit=limit)))
+        if bank in ("ecb", "all"):
+            year = datetime.now(UTC).year
+            async with EcbTextConnector(data_dir) as ecb:
+                years = None if all_years else [year, year - 1]
+                out.append(("ecb", await ecb.sync(years=years, limit=limit)))
+        return out
+
+    for name, res in asyncio.run(go()):
+        typer.echo(f"{name}: {res['new']} new")
+        for f in res["failed"][:10]:
+            typer.echo(f"  failed: {f}")
 
 
 @text_app.command("search")
 def text_search(
     query: str,
-    kind: Annotated[str, typer.Option(help="any | statement | minutes")] = "any",
+    bank: Annotated[str, typer.Option(help="any | fomc | ecb")] = "any",
+    kind: Annotated[str, typer.Option(help="any | statement | minutes | press_conference")] = "any",
     as_of: Annotated[str, typer.Option("--as-of", help="YYYY-MM-DD")] = "",
     k: Annotated[int, typer.Option()] = 6,
 ) -> None:
@@ -458,12 +476,15 @@ def text_search(
     from atlas.agent.tools import ToolKit
 
     s = get_settings()
-    out = ToolKit(s.data_dir, s.config_dir).search_documents(query, kind, as_of, k)
+    out = ToolKit(s.data_dir, s.config_dir).search_documents(query, bank, kind, as_of, k)
     if "error" in out:
         typer.echo(out["error"], err=True)
         raise typer.Exit(1)
     for h in out["passages"]:
-        typer.echo(f"[{h['relevance']:5.1f}] {h['kind']:<9} {h['meeting_date']}  {h['url']}")
+        typer.echo(
+            f"[{h['relevance']:5.1f}] {h['bank']:<4} {h['kind']:<16} {h['meeting_date']}  "
+            f"{h['url']}"
+        )
         typer.echo(f"        {h['text'][:300]}")
 
 

@@ -99,6 +99,7 @@ def test_tool_specs_are_strict_ready() -> None:
         "run_scenario",
         "search_documents",
         "get_fomc_statement",
+        "get_ecb_statement",
     } == names
     for t in TOOL_SPECS:
         schema = t["input_schema"]

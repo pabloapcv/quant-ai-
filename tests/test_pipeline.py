@@ -133,6 +133,7 @@ async def test_run_daily_skips_fred_without_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import atlas.pipeline as pl_mod
+    from atlas.text.ecb import EcbTextConnector
     from atlas.text.fed import FedTextConnector
 
     async def no_network(*_a: object, **_k: object) -> list[object]:
@@ -142,7 +143,12 @@ async def test_run_daily_skips_fred_without_key(
         return {"releases": 0, "new": 0, "skipped": 0, "failed": []}
 
     monkeypatch.setattr(pl_mod, "ingest_series", no_network)
+
+    async def no_ecb(*_a: object, **_k: object) -> dict[str, object]:
+        return {"new": 0, "pages": 0, "failed": []}
+
     monkeypatch.setattr(FedTextConnector, "sync", no_fed)  # never hit federalreserve.gov
+    monkeypatch.setattr(EcbTextConnector, "sync", no_ecb)  # nor ecb.europa.eu
     data = tmp_path / "data"
     _country_store(data)
     rep = await run_daily(Settings(data_dir=data, config_dir=REPO / "config"), views=())
@@ -156,6 +162,7 @@ async def test_run_daily_skips_fred_without_key(
         "ingest:bis",
         "ingest:imf",
         "ingest:fed_text",
+        "ingest:ecb_text",
         "text:tone",
     }
     tone = next(s for s in rep.steps if s.name == "text:tone")

@@ -32,6 +32,7 @@ from atlas.pit.store import PITStore
 from atlas.quality.contracts import find_stale
 from atlas.quality.drift import backtest_ic_stats, feature_psi
 from atlas.settings import Settings
+from atlas.text.ecb import EcbTextConnector
 from atlas.text.fed import FedTextConnector
 from atlas.text.tone import run_tone
 from atlas.views.publish import ViewExistsError, publish, views_dir
@@ -158,8 +159,18 @@ async def run_daily(
                 detail += f"; failed: {', '.join(out['failed'][:3])}"
             return not out["failed"], detail
 
+        async def ecb_text() -> tuple[bool, str]:
+            year = started.year
+            async with EcbTextConnector(data_dir) as conn:  # recent years: a few requests
+                out = await conn.sync(years=[year, year - 1])
+            detail = f"{out['new']} new statements"
+            if out["failed"]:
+                detail += f"; failed: {', '.join(out['failed'][:3])}"
+            return not out["failed"], detail
+
         await _timed(report, "ingest:fred", fred)
         await _timed(report, "ingest:fed_text", fed_text)
+        await _timed(report, "ingest:ecb_text", ecb_text)
         await _timed(report, "ingest:kenfrench", kenfrench)
         for agency in sorted(AGENCIES):
 
