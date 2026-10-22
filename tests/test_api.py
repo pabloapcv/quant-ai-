@@ -132,3 +132,19 @@ def test_chat_passes_history(data: Path) -> None:
     assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
     assert msgs[0]["content"] == "View on Germany?"
     assert msgs[-1]["content"] == "And Japan?"
+
+
+def test_chat_executive_style_and_briefing(data: Path) -> None:
+    from tests.test_agent import FakeClient, response, text_block
+
+    fake = FakeClient([response("end_turn", text_block("No numbers here."))])
+    app = create_app(Settings(data_dir=data, config_dir=REPO / "config"), llm_client=fake)
+    client = TestClient(app)
+    with client.stream("POST", "/v1/chat", json={"question": "Hi", "style": "executive"}) as r:
+        "".join(r.iter_text())
+    system = fake.requests[0]["system"]
+    assert len(system) == 2
+    assert "executive" in system[1]["text"]
+    assert client.post("/v1/chat", json={"question": "Hi", "style": "pirate"}).status_code == 422
+    b = client.get("/v1/briefing").json()
+    assert {"economy", "central_banks", "leans", "alerts", "trust_note"} <= set(b)

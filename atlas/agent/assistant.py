@@ -61,6 +61,19 @@ Do not include internal or system XML tags in your response.
 sentence or two what you are (a research assistant answering from the Ramon engine's tools, \
 not giving personalized advice) and offer to help with a research question."""
 
+EXECUTIVE_STYLE = """Audience for this conversation: a business executive, not a quant. \
+Write for them:
+- Lead with the answer in one plain sentence, then at most three short bullets on what it \
+means in practice (costs, demand, financing, currency exposure, risks to watch).
+- Use everyday words. Do not use jargon such as IC, t-stat, z-score, basis points, \
+quadrant, ensemble, walk-forward or stance; say "chance of doing better than its peers" \
+for a probability of beating the median, "lean" for a stance, and "percentage points" \
+for rate moves.
+- Say how confident the engine is in plain terms (for example "a slight lean, not a \
+strong signal"), and say when the track record is weak.
+- Skip tables unless asked; keep it under about 120 words.
+All the rules above still apply: every number must come from a tool result."""
+
 REPAIR_PROMPT = (
     "These numbers in your answer do not match any tool result in this conversation: {nums}. "
     "Revise the answer: use tool results for every number (call tools if needed), or remove "
@@ -101,6 +114,7 @@ class Assistant:
         effort: str = "medium",
         max_steps: int = 10,
         fallbacks: bool = True,
+        style: str = "analyst",  # or "executive": plain language for non-quants
     ) -> None:
         self.client = client
         self.toolkit = toolkit
@@ -108,6 +122,7 @@ class Assistant:
         self.effort = effort
         self.max_steps = max_steps
         self.fallbacks = fallbacks
+        self.style = style
 
     def _create(self, messages: list[dict[str, Any]]) -> Any:
         kwargs: dict[str, Any] = {
@@ -115,7 +130,8 @@ class Assistant:
             "max_tokens": 16000,
             # Cache breakpoint after tools + system (identical on every call), and on the
             # latest tool results so each step of the tool loop reuses the previous prefix.
-            "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": EPHEMERAL}],
+            "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": EPHEMERAL}]
+            + ([{"type": "text", "text": EXECUTIVE_STYLE}] if self.style == "executive" else []),
             "tools": [{**t, "strict": True} for t in TOOL_SPECS],
             "tool_choice": {"type": "auto"},
             "output_config": {"effort": self.effort},

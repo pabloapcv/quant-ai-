@@ -8,6 +8,8 @@
 
 ```bash
 ramon api serve          # then open http://127.0.0.1:8710/  (the web app)
+
+The app opens on a plain-language **Briefing** (economy, recession risk, central banks, where the models lean and how far to trust them), **Ask Ramon** (answers in everyday language) and **What if…?** (one-click scenarios such as an oil spike or a rate rise). Tick **Analyst view** for the technical tabs and analyst-style answers.
 ```
 
 The web app has a chat with the assistant (tool calls stream in; every number is checked

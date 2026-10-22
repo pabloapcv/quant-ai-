@@ -24,7 +24,7 @@ import time
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
@@ -64,6 +64,7 @@ class ChatTurn(BaseModel):
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     history: list[ChatTurn] = Field(default_factory=list, max_length=20)
+    style: Literal["analyst", "executive"] = "analyst"
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -143,6 +144,18 @@ def create_app(
         return RedirectResponse("/app/")
 
     app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="app")
+
+    @app.get("/v1/briefing", dependencies=guarded)
+    def briefing() -> dict[str, Any]:
+        """Plain-language executive briefing, built by fixed rules from the engine's data."""
+        from atlas.briefing import build_briefing
+
+        cutoff = (datetime.now(UTC) - timedelta(days=14)).date().isoformat()
+        recent: list[dict[str, Any]] = []
+        for f in sorted((data_dir / "alerts").glob("*.jsonl")):
+            if f.stem >= cutoff:
+                recent += [json.loads(line) for line in f.read_text().splitlines() if line]
+        return build_briefing(kit.get(), recent[::-1])
 
     @app.get("/v1/central-banks", dependencies=guarded)
     def central_banks() -> dict[str, Any]:
@@ -282,6 +295,7 @@ def create_app(
                         kit.get(),
                         model=settings.assistant_model,
                         effort=settings.assistant_effort,
+                        style=req.style,
                     )
                     ans = assistant.ask(
                         req.question,

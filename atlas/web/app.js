@@ -64,6 +64,23 @@
   }
   const failBox = (el, e) => { el.innerHTML = `<p class="err">Couldn't load: ${esc(e.message)}</p>`; };
 
+  // ---------------------------------------------------------------- analyst mode
+  const analyst = () => document.body.classList.contains('analyst');
+  function setAnalyst(on) {
+    document.body.classList.toggle('analyst', on);
+    $('#analyst-mode').checked = on;
+    store.set('ramon_analyst', on ? '1' : '');
+    const cur = store.get('ramon_tab', 'brief');
+    if (!on && $(`#tabs button[data-tab="${cur}"]`)?.classList.contains('analyst-only')) show('brief');
+  }
+  const TOOL_WORDS = {
+    list_universes: 'Checked coverage', get_views: 'Read market leans', get_track_record: 'Checked track record',
+    get_signal_gates: 'Checked model tests', get_portfolio: 'Read model portfolio', search_catalog: 'Searched data',
+    get_series: 'Read economic data', get_regime: 'Read the economy', find_analogs: 'Compared with history',
+    run_scenario: 'Ran a what-if', search_documents: 'Searched central-bank texts',
+    get_ecb_statement: 'Read ECB statement', get_fomc_statement: 'Read Fed statement',
+  };
+
   // ---------------------------------------------------------------- tabs
   const loaded = new Set();
   function show(tab) {
@@ -108,7 +125,7 @@
       const res = await fetch('/v1/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...headers() },
-        body: JSON.stringify({ question, history }),
+        body: JSON.stringify({ question, history, style: analyst() ? 'analyst' : 'executive' }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`);
       const reader = res.body.getReader();
@@ -126,14 +143,14 @@
           const data = JSON.parse((block.match(/^data: (.*)$/m) || [])[1] || '{}');
           if (ev === 'tool') {
             const s = document.createElement('span');
-            s.textContent = `${data.name}${data.error ? ' (error)' : ''}`;
+            s.textContent = `${analyst() ? data.name : (TOOL_WORDS[data.name] || 'Checked data')}${data.error ? ' (error)' : ''}`;
             tools.append(s);
           } else if (ev === 'answer') {
             answerEl.innerHTML = md(data.text);
             const ok = data.grounded;
             const line = document.createElement('div');
             line.className = `check-line ${ok ? '' : 'bad'}`;
-            line.textContent = ok ? '✓ Every number checked against the engine data'
+            line.textContent = ok ? '✓ Every number checked against Ramon\'s data'
               : `⚠ Not traceable to engine data: ${data.unsupported.join(', ')}`;
             bot.append(line);
             history.push({ question, answer: data.text });
@@ -167,6 +184,105 @@
       const b = u.daily_budget;
       $('#usage-line').textContent = `Claude today: ${Math.round(u.today.weighted).toLocaleString()} of ${b ? b.toLocaleString() : 'unlimited'} weighted tokens`;
     } catch { $('#usage-line').textContent = ''; }
+  }
+
+  // ---------------------------------------------------------------- Briefing
+  const light = (l, text) => `<span class="light ${esc(l)}"><i></i>${esc(text)}</span>`;
+  const cap = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
+  const monthName = (d) => (d ? new Date(`${d.slice(0, 10)}T00:00:00Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' }) : '');
+  const dayName = (d) => (d ? new Date(`${d.slice(0, 10)}T00:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) : '');
+  function leanList(items) {
+    return `<ul class="leans">${items.map((x) => `<li><span>${esc(x.asset)}</span><span class="muted small">${pct(x.chance_beat_peers, 0)} chance of beating peers</span></li>`).join('')}</ul>`;
+  }
+  async function loadBrief() {
+    const el = $('#brief');
+    try {
+      const b = await api('/v1/briefing');
+      const e = b.economy;
+      const parts = [];
+      if (e) {
+        const g = e.gdp_nowcast;
+        parts.push(`<div class="card hero">
+          <div class="eyebrow">The economy in one sentence · data through ${esc(monthName(e.data_month))}</div>
+          <p class="headline">${esc(e.sentence)}</p>
+          <div class="kpis">
+            <div class="kpi"><div class="k">Overall picture</div><div class="v">${light(e.regime_light, e.regime)}</div>
+              <div class="small muted">${e.regime_confidence === 'clear' ? 'Signals agree' : 'Signals are mixed: treat as a tentative read'}</div></div>
+            <div class="kpi"><div class="k">Recession risk, next 12 months</div><div class="v">${light(e.recession.light, `${cap(e.recession.word)} · ${pct(e.recession.probability, 0)}`)}</div></div>
+            <div class="kpi"><div class="k">Economic growth right now</div><div class="v">${g ? `${num(g.gdp_saar_pct, 1)}% <span class="small muted">annual pace</span>` : '—'}</div>
+              <div class="small muted">${g ? `Atlanta Fed estimate for ${esc(String(g.quarter).replace(/(\d{4})Q(\d)/, 'Q$2 $1'))}, updated ${esc(dayName(g.updated))}` : ''}</div></div>
+            <div class="kpi"><div class="k">Borrowing &amp; market conditions</div><div class="v">${esc(cap(e.financial_conditions.split(' (')[0]))}</div>
+              <div class="small muted">${esc((e.financial_conditions.split(' (')[1] || '').replace(')', ''))}</div></div>
+          </div></div>`);
+      }
+      parts.push(`<h2>Central banks</h2><div class="grid2">${b.central_banks.map((c) => `<div class="card">
+          <div class="eyebrow">${esc(c.bank)}${c.meeting_date ? ` · ${esc(dayName(c.meeting_date))}` : ''}</div>
+          <p class="sub">${esc(c.headline)}</p>
+          ${c.tone ? `<p><span class="tone ${c.facts.stance > 0 ? 'hawk' : c.facts.stance < 0 ? 'dove' : ''}">${esc(cap(c.tone.split(':')[0]))}</span> <span class="muted">${esc(c.tone.split(':').slice(1).join(':'))}</span></p>` : ''}
+          ${c.summary ? `<p class="small">${esc(c.summary)}</p>` : ''}
+          ${c.url ? `<p class="small"><a href="${esc(c.url)}" target="_blank" rel="noopener">Read the statement ↗</a></p>` : ''}
+        </div>`).join('')}</div>
+        <p class="small muted">"Hawkish" means focused on fighting inflation, which usually means higher borrowing costs; "dovish" means focused on supporting growth.</p>`);
+      parts.push(`<h2>Where the models lean</h2><div class="grid2">${b.leans.map((l) => (l.as_of ? `<div class="card">
+          <div class="eyebrow">${esc(l.label)} · next 3 months, as of ${esc(monthName(l.as_of))}</div>
+          ${l.all_neutral ? '<p class="small muted">No strong leans: every one is close to a coin flip.</p>' : ''}
+          <div class="lean-cols"><div><div class="k pos">Slightly favored</div>${leanList(l.favored)}</div>
+          <div><div class="k neg">Least favored</div>${leanList(l.least)}</div></div></div>`
+        : `<div class="card"><div class="eyebrow">${esc(l.label)}</div><p class="muted">Not available.</p></div>`)).join('')}</div>
+        <div class="callout">${esc(b.trust_note)}</div>`);
+      parts.push(`<h2>Recent warnings</h2><div class="card">${b.alerts.length
+        ? `<ul class="changes">${b.alerts.map((a) => `<li><span class="small muted">${esc(dayName(a.date))}</span> ${esc(a.message)}</li>`).join('')}</ul>`
+        : '<p class="muted">Nothing notable in the last two weeks.</p>'}</div>`);
+      parts.push(`<div class="card"><h3>Go deeper</h3><div class="examples">${[
+        'What does the Fed decision mean for borrowing costs?',
+        'Which industries tend to do well in an economy like this one?',
+        'What would change your view on recession risk?',
+      ].map((q) => `<button class="ex go">${esc(q)}</button>`).join('')}</div></div>`);
+      el.innerHTML = parts.join('');
+      $$('.go', el).forEach((btn) => btn.addEventListener('click', () => { show('ask'); ask(btn.textContent); }));
+    } catch (err) { failBox(el, err); }
+  }
+
+  // ---------------------------------------------------------------- What if
+  const PRESETS = [
+    { label: 'Oil prices jump 30%', shocks: { oil: 0.3 } },
+    { label: 'Oil prices fall 30%', shocks: { oil: -0.3 } },
+    { label: 'Interest rates rise 1 point', shocks: { us10y: 1, us2y: 1 } },
+    { label: 'Interest rates fall 1 point', shocks: { us10y: -1, us2y: -1 } },
+    { label: 'Market panic', shocks: { vix: 15, credit_spread: 1 }, note: 'fear index up 15 points, corporate borrowing spreads up 1 point' },
+    { label: 'Dollar strengthens 10%', shocks: { usd: 0.1 } },
+    { label: 'Inflation fears rise', shocks: { breakeven10y: 0.5 }, note: 'expected inflation up 0.5 points' },
+  ];
+  const UNIT_WORD = { ind12: 'the average US sector', ctry_usd: 'the average market', fx_g10: 'the average currency', rates_dev: 'the average bond market' };
+  let lastPreset = null;
+  $('#presets').innerHTML = PRESETS.map((p, i) => `<button type="button" class="preset" data-i="${i}">${esc(p.label)}</button>`).join('');
+  $$('.preset').forEach((b) => b.addEventListener('click', () => runPreset(Number(b.dataset.i))));
+  $('#whatif-universe').addEventListener('change', () => { if (lastPreset !== null) runPreset(lastPreset); });
+  async function runPreset(i) {
+    lastPreset = i;
+    const p = PRESETS[i];
+    $$('.preset').forEach((b) => b.classList.toggle('on', Number(b.dataset.i) === i));
+    const u = $('#whatif-universe').value;
+    const out = $('#whatif-out');
+    out.innerHTML = '<div class="card"><span class="spinner"></span> Looking through history…</div>';
+    try {
+      const r = await api('/v1/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ universe: u, shocks: p.shocks }) });
+      const rows = [...r.excess_vs_average].sort((a, b) => b.expected - a.expected);
+      const max = Math.max(...rows.map((x) => Math.abs(x.expected)), 1e-9);
+      const best = rows[0]; const worst = rows[rows.length - 1];
+      const avg = r.equal_weight_average_return.expected;
+      const bars = rows.map((x) => {
+        const w = (Math.abs(x.expected) / max) * 50;
+        return `<div class="brow"><span class="name">${esc(x.asset)}</span><div class="track"><div class="fill ${x.expected >= 0 ? 'up' : 'down'}" style="${x.expected >= 0 ? `left:50%;width:${w}%` : `left:${50 - w}%;width:${w}%`}"></div></div><span class="val ${sgn(x.expected)}">${spct(x.expected)}</span></div>`;
+      }).join('');
+      out.innerHTML = `<div class="card">
+        <div class="eyebrow">${esc(p.label)}${p.note ? ` (${esc(p.note)})` : ''}</div>
+        <p class="sub">Historically, <strong>${esc(best.asset)}</strong> did best (${spct(best.expected)} vs ${esc(UNIT_WORD[u])}) and <strong>${esc(worst.asset)}</strong> fared worst (${spct(worst.expected)}).</p>
+        <p class="small muted">${esc(cap(UNIT_WORD[u]))} itself typically ${avg >= 0 ? 'rose' : 'fell'} ${pct(Math.abs(avg))} in such a month. The bars show each one's move compared with that average.</p>
+        <div class="bars">${bars}</div>
+        <p class="small muted">Based on ${esc(String(r.fit.months))} months of history (${esc(monthName(r.fit.from))} to ${esc(monthName(r.fit.to))}). This shows how things usually moved together in the same month, not a forecast; real events rarely match history exactly.</p>
+      </div>`;
+    } catch (err) { failBox(out, err); }
   }
 
   // ---------------------------------------------------------------- Macro
@@ -321,6 +437,8 @@
   $('#token').value = store.get('ramon_token', '');
   $('#token').addEventListener('change', (e) => store.set('ramon_token', e.target.value));
 
-  const loaders = { ask: loadUsage, macro: loadMacro, views: loadViews, analogs: loadAnalogs, scenario: fillUniverses, system: loadSystem };
-  show(store.get('ramon_tab', 'ask'));
+  const loaders = { brief: loadBrief, ask: loadUsage, macro: loadMacro, views: loadViews, analogs: loadAnalogs, scenario: fillUniverses, system: loadSystem };
+  $('#analyst-mode').addEventListener('change', (e) => setAnalyst(e.target.checked));
+  setAnalyst(store.get('ramon_analyst', '') === '1');
+  show(store.get('ramon_tab', 'brief'));
 })();

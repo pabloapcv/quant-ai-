@@ -9,40 +9,68 @@
 </head>
 <body>
   <header class="top">
-    <div class="brand">Ramon <span>quant research assistant</span></div>
+    <div class="brand">Ramon <span>economy &amp; markets briefing</span></div>
     <nav id="tabs" role="tablist">
-      <button role="tab" data-tab="ask" aria-selected="true">Ask</button>
-      <button role="tab" data-tab="macro">Macro &amp; central banks</button>
-      <button role="tab" data-tab="views">Views</button>
-      <button role="tab" data-tab="scenario">Scenarios</button>
-      <button role="tab" data-tab="analogs">Analogs</button>
-      <button role="tab" data-tab="system">System</button>
+      <button role="tab" data-tab="brief" aria-selected="true">Briefing</button>
+      <button role="tab" data-tab="ask">Ask Ramon</button>
+      <button role="tab" data-tab="whatif">What if…?</button>
+      <span class="analyst-only sep" aria-hidden="true"></span>
+      <button role="tab" data-tab="macro" class="analyst-only">Macro detail</button>
+      <button role="tab" data-tab="views" class="analyst-only">Model views</button>
+      <button role="tab" data-tab="scenario" class="analyst-only">Custom scenario</button>
+      <button role="tab" data-tab="analogs" class="analyst-only">Analogs</button>
+      <button role="tab" data-tab="system" class="analyst-only">System</button>
     </nav>
+    <label class="check mode"><input type="checkbox" id="analyst-mode"> Analyst view</label>
   </header>
 
   <main>
+    <!-- Briefing -->
+    <section id="tab-brief" class="tab active">
+      <div id="brief"><div class="card"><span class="spinner"></span> Preparing your briefing…</div></div>
+    </section>
+
+    <!-- What if -->
+    <section id="tab-whatif" class="tab">
+      <div class="card">
+        <h3>What if…?</h3>
+        <p class="muted">Pick an event. Ramon looks at every month since 2006 and shows which parts of the market usually did better or worse than average when it happened.</p>
+        <div class="controls">
+          <label>Look at <select id="whatif-universe">
+            <option value="ind12">US sectors</option>
+            <option value="ctry_usd">Stock markets around the world (in dollars)</option>
+            <option value="fx_g10">Major currencies vs the dollar</option>
+            <option value="rates_dev">Government bonds</option>
+          </select></label>
+        </div>
+        <div id="presets" class="presets"></div>
+      </div>
+      <div id="whatif-out"></div>
+    </section>
+
     <!-- Ask -->
-    <section id="tab-ask" class="tab active">
+    <section id="tab-ask" class="tab">
       <div id="chat" class="chat" aria-live="polite">
         <div class="hint">
-          <p>Ask Ramon about the macro regime, central banks, model views, scenarios or the track record. Every number in an answer is checked against the engine's data.</p>
+          <p>Ask a question in your own words. Ramon answers in plain language from its data, and checks every number it gives you against that data.</p>
           <div class="examples">
-            <button class="ex">What did the Fed and the ECB do at their latest meetings?</button>
-            <button class="ex">What happens to US industries if the 10-year yield rises 100bp?</button>
-            <button class="ex">How reliable are the country views?</button>
-            <button class="ex">Which past periods look most like today's macro environment?</button>
+            <button class="ex">Is a recession coming?</button>
+            <button class="ex">What did the Fed and the ECB decide, and what does it mean for borrowing costs?</button>
+            <button class="ex">If oil prices jump 30%, which industries are hit hardest?</button>
+            <button class="ex">Which past periods look most like today, and what happened next?</button>
+            <button class="ex">How much should I trust the market leans?</button>
           </div>
         </div>
       </div>
       <form id="ask-form" class="ask">
-        <textarea id="question" rows="2" placeholder="Ask a research question…" required></textarea>
+        <textarea id="question" rows="2" placeholder="Ask anything about the economy, interest rates or markets…" required></textarea>
         <div class="ask-row">
           <button type="button" id="clear" class="ghost">New conversation</button>
-          <span id="usage-line" class="muted"></span>
+          <span class="muted grow"><span id="usage-line" class="analyst-only"></span></span>
           <button type="submit" id="send">Ask</button>
         </div>
       </form>
-      <p class="disclaimer">Research output from model views and historical backtests, not investment advice.</p>
+      <p class="disclaimer">Research based on public data and historical patterns, not investment advice.</p>
     </section>
 
     <!-- Macro -->
