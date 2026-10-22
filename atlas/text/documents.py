@@ -111,9 +111,14 @@ _VERB = re.compile(
     re.I,
 )
 _GUIDANCE = re.compile(
-    r"\b(expects?|intends?|anticipates?|appropriate|would|could|may|likely|ready to|prepared)\b",
+    r"\b(expects?|intends?|anticipates?|appropriate|would|could|may|likely|ready to|prepared|"
+    r"will remain|extended period|in the future)\b",
     re.I,
 )
+_HOLD = re.compile(r"\b(unchanged|keep|kept|maintain(ed)?|left|leave|remain(ed)?|reaffirm)", re.I)
+# "kept rates unchanged, following the increase of 25 basis points in March": the move named
+# after these words is the previous meeting's, not today's decision
+_PAST = re.compile(r"\b(following|after|since)\b", re.I)
 _UP = re.compile(r"\b(raise[sd]?|increase[sd]?|hike)", re.I)
 _DOWN = re.compile(r"\b(lower(ed)?|reduce[sd]?|cut|decrease[sd]?)", re.I)
 
@@ -136,9 +141,13 @@ def decision(doc: Document, previous: Document | None = None) -> tuple[str, str]
     for sent in sentences(doc.paragraphs):
         if not (_RATE.search(sent) and _VERB.search(sent)) or _GUIDANCE.search(sent):
             continue
-        if _UP.search(sent) and not _DOWN.search(sent):
+        today = _PAST.split(sent, maxsplit=1)[0]
+        up, down, hold = _UP.search(today), _DOWN.search(today), _HOLD.search(today)
+        if up and not down:
             return "raise", sent
-        if _DOWN.search(sent) and not _UP.search(sent):
+        if down and not up:
             return "lower", sent
-        return "hold", sent
+        if hold:
+            return "hold", sent
+        # e.g. "we took a number of decisions on key ECB interest rates": read on
     return None

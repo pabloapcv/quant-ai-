@@ -315,3 +315,23 @@ def test_ecb_tone_check_and_prompt() -> None:
     assert tone is not None
     assert tone.consistent is True
     assert "European Central Bank" in seen["system"]
+
+
+def test_decision_ignores_previous_moves_and_preambles() -> None:
+    from atlas.text.documents import decision
+
+    def ecb(*paras: str) -> Document:
+        d = _doc(date(2012, 1, 12), list(paras))
+        return d.model_copy(update={"source": "ecb"})
+
+    kept = ecb(
+        "The Governing Council decided today to keep the key ECB interest rates unchanged, following the 25 basis point decrease on 8 December 2011."
+    )
+    assert decision(kept) is not None
+    assert decision(kept)[0] == "hold"  # type: ignore[index]
+    cut = ecb(
+        "We will now report on the outcome of today's meeting, during which we took a number of decisions on key ECB interest rates.",
+        "Concerning our forward guidance, the key ECB interest rates will remain at present levels for an extended period of time.",
+        "We decided to lower the interest rate on the main refinancing operations by 10 basis points.",
+    )
+    assert decision(cut) == ("lower", cut.paragraphs[2])
