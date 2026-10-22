@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field, ValidationError
 from atlas.text.documents import DocStore, Document
 
 EXTRACT_MODEL = "claude-haiku-5-5"
+MAX_ATTEMPTS = 3  # a statement whose reply never parses is not re-read every day
 
 PROMPT = """You read Federal Open Market Committee statements and extract facts. You get the \
 current statement and, when available, the previous one. Reply with one JSON object only:
@@ -205,15 +206,21 @@ def run_tone(
     have = set(load_tones(data_dir, bank))
     folder = tone_dir(data_dir, bank)
     folder.mkdir(parents=True, exist_ok=True)
+    attempts_path = folder.parent / "tone_failures.json"  # not in tone/: not a reading
+    attempts: dict[str, int] = (
+        json.loads(attempts_path.read_text()) if attempts_path.exists() else {}
+    )
     done = failed = 0
     for i, doc in enumerate(docs):
-        if doc.doc_id in have:
+        if doc.doc_id in have or attempts.get(doc.doc_id, 0) >= MAX_ATTEMPTS:
             continue
         if limit is not None and done >= limit:
             break
         tone = extract(client, doc, docs[i - 1] if i else None, model)
         if tone is None:
             failed += 1
+            attempts[doc.doc_id] = attempts.get(doc.doc_id, 0) + 1
+            attempts_path.write_text(json.dumps(attempts, indent=2))
             continue
         (folder / f"{doc.doc_id}.json").write_text(tone.model_dump_json(indent=2))
         done += 1

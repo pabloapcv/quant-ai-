@@ -242,8 +242,8 @@ async def run_daily(
                 fomc = run_tone(data_dir, client)
                 ecb = run_tone(data_dir, client, bank="ecb")
                 out = {k: fomc[k] + ecb[k] for k in ("extracted", "failed")}
-            except BudgetExceeded as exc:
-                return False, str(exc)
+            except BudgetExceeded:  # readings catch up tomorrow; data and views are unaffected
+                return True, "deferred: daily LLM budget reached"
             except Exception as exc:  # no Anthropic credentials: skip, data still flows
                 return True, f"skipped: {type(exc).__name__}"
             return out["failed"] == 0, f"{out['extracted']} statements read"

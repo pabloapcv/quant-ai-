@@ -335,3 +335,25 @@ def test_decision_ignores_previous_moves_and_preambles() -> None:
         "We decided to lower the interest rate on the main refinancing operations by 10 basis points.",
     )
     assert decision(cut) == ("lower", cut.paragraphs[2])
+
+
+def test_unparseable_statement_is_not_retried_forever(tmp_path: Path) -> None:
+    from atlas.text.tone import MAX_ATTEMPTS, run_tone
+
+    store = DocStore(tmp_path)
+    store.save(
+        _doc(date(2025, 1, 29), ["The Committee decided to maintain the target range.", "x"])
+    )
+    calls: list[int] = []
+
+    def create(**kw: Any) -> Any:
+        calls.append(1)
+        return SimpleNamespace(
+            model="h", content=[SimpleNamespace(type="text", text="no json here")]
+        )
+
+    client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create)))
+    for _ in range(MAX_ATTEMPTS + 2):
+        out = run_tone(tmp_path, client)
+    assert len(calls) == MAX_ATTEMPTS
+    assert out["failed"] == 0  # given up: no longer attempted
