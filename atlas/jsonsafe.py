@@ -1,7 +1,7 @@
 """Strict JSON output: NaN and infinities become null.
 
 Python's ``json`` writes ``NaN``/``Infinity`` by default, which is not JSON: browsers and
-most parsers reject the whole document. Every file or stdout payload Atlas emits for other
+most parsers reject the whole document. Every file or stdout payload Ramon emits for other
 tools goes through ``dumps``.
 """
 

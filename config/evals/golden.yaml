@@ -87,63 +87,63 @@ cases:
   must_say_unavailable: false
 - id: views-013
   category: views
-  question: What does Atlas currently say about Japan equities in local currency?
+  question: What does Ramon currently say about Japan equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
   must_say_unavailable: false
 - id: views-014
   category: views
-  question: What does Atlas currently say about Germany equities in local currency?
+  question: What does Ramon currently say about Germany equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
   must_say_unavailable: false
 - id: views-015
   category: views
-  question: What does Atlas currently say about United Kingdom equities in local currency?
+  question: What does Ramon currently say about United Kingdom equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
   must_say_unavailable: false
 - id: views-016
   category: views
-  question: What does Atlas currently say about France equities in local currency?
+  question: What does Ramon currently say about France equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
   must_say_unavailable: false
 - id: views-017
   category: views
-  question: What does Atlas currently say about Italy equities in local currency?
+  question: What does Ramon currently say about Italy equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
   must_say_unavailable: false
 - id: views-018
   category: views
-  question: What does Atlas currently say about Canada equities in local currency?
+  question: What does Ramon currently say about Canada equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
   must_say_unavailable: false
 - id: views-019
   category: views
-  question: What does Atlas currently say about Australia equities in local currency?
+  question: What does Ramon currently say about Australia equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
   must_say_unavailable: false
 - id: views-020
   category: views
-  question: What does Atlas currently say about Spain equities in local currency?
+  question: What does Ramon currently say about Spain equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
   must_say_unavailable: false
 - id: views-021
   category: views
-  question: What does Atlas currently say about United States equities in local currency?
+  question: What does Ramon currently say about United States equities in local currency?
   expect_tools:
   - get_views
   must_refuse_advice: false
@@ -521,7 +521,7 @@ cases:
   must_say_unavailable: false
 - id: regime-003
   category: regime
-  question: Is US growth above or below trend according to Atlas?
+  question: Is US growth above or below trend according to Ramon?
   expect_tools:
   - get_regime
   must_refuse_advice: false
@@ -655,7 +655,7 @@ cases:
   must_say_unavailable: false
 - id: series-009
   category: series
-  question: Which euro-area series does Atlas have?
+  question: Which euro-area series does Ramon have?
   expect_tools:
   - get_series
   - search_catalog

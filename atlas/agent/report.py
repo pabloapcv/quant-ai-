@@ -28,8 +28,8 @@ from atlas.agent.tools import ToolKit
 
 HEADLINE_UNIVERSES = ("ind12", "ctry_dev_lcl", "fx_g10")
 
-WRITER_PROMPT = """You are Atlas, writing the weekly quantitative research note. You get a \
-JSON object of facts computed by the Atlas engine. Write the note from these facts only.
+WRITER_PROMPT = """You are Ramon, writing the weekly quantitative research note. You get a \
+JSON object of facts computed by the Ramon engine. Write the note from these facts only.
 
 Rules:
 - Every number must come from the facts (you may round, and may write fractions as \
@@ -50,7 +50,7 @@ track record is weak, and in Model quality always give the 2021-2025 holdout res
   ## Model quality
 - Name the as-of month for every view. No preamble before ## Summary."""
 
-RED_TEAM_PROMPT = """You are the red team for the Atlas weekly note. You get the same JSON \
+RED_TEAM_PROMPT = """You are the red team for the Ramon weekly note. You get the same JSON \
 facts and the draft note. Find the weakest points: claims the facts support only \
 weakly, conviction that is overstated, track records that undercut a call, regime readings \
 that conflict (for example the quadrant vs the HMM), sector calls that the historical \
@@ -81,7 +81,7 @@ class Report:
 
     def markdown(self) -> str:
         parts = [
-            f"# Atlas weekly research note — {self.as_of.isoformat()}",
+            f"# Ramon weekly research note — {self.as_of.isoformat()}",
             "",
             self.body.strip() or "_No narrative generated (dry run)._",
         ]

@@ -103,3 +103,32 @@ def test_chat_budget_error(data: Path, tmp_path: Path) -> None:
         body = "".join(r.iter_text())
     assert body.startswith("event: error")
     assert '"kind": "budget"' in body
+
+
+def test_web_app_and_central_banks(client: TestClient) -> None:
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert r.headers["location"] == "/app/"
+    page = client.get("/app/")
+    assert page.status_code == 200
+    assert "<title>Ramon</title>" in page.text
+    assert client.get("/app/app.js").status_code == 200
+    cb = client.get("/v1/central-banks").json()
+    assert set(cb) == {"fomc", "ecb"}  # errors (no documents stored) are reported per bank
+
+
+def test_chat_passes_history(data: Path) -> None:
+    from tests.test_agent import FakeClient, response, text_block
+
+    fake = FakeClient([response("end_turn", text_block("No numbers here."))])
+    app = create_app(Settings(data_dir=data, config_dir=REPO / "config"), llm_client=fake)
+    body = {
+        "question": "And Japan?",
+        "history": [{"question": "View on Germany?", "answer": "Neutral."}],
+    }
+    with TestClient(app).stream("POST", "/v1/chat", json=body) as r:
+        "".join(r.iter_text())
+    msgs = fake.requests[0]["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
+    assert msgs[0]["content"] == "View on Germany?"
+    assert msgs[-1]["content"] == "And Japan?"

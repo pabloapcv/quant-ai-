@@ -27,7 +27,8 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from atlas import jsonsafe
@@ -36,9 +37,11 @@ from atlas.models.scenario import FACTOR_NAMES
 from atlas.settings import Settings
 from atlas.signals.universes import UNIVERSES
 
+WEB_DIR = Path(__file__).parent / "web"  # the single-page app served at /app/
+
 
 class SafeJSON(JSONResponse):
-    """JSON with NaN/inf mapped to null, like every other Atlas output."""
+    """JSON with NaN/inf mapped to null, like every other Ramon output."""
 
     def render(self, content: Any) -> bytes:
         return jsonsafe.dumps(content).encode()
@@ -53,8 +56,14 @@ class ScenarioRequest(BaseModel):
     same_regime: bool = False
 
 
+class ChatTurn(BaseModel):
+    question: str = Field(max_length=4000)
+    answer: str = Field(max_length=20000)
+
+
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
+    history: list[ChatTurn] = Field(default_factory=list, max_length=20)
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -95,7 +104,7 @@ def create_app(
 ) -> FastAPI:
     """``llm_client`` overrides the metered Anthropic client (tests)."""
     app = FastAPI(
-        title="Atlas API",
+        title="Ramon API",
         version="0.1.0",
         description="Point-in-time macro regime, views, scenarios and track record. "
         "Research output, not investment advice.",
@@ -129,9 +138,21 @@ def create_app(
         )
         return PlainTextResponse(text, media_type="text/plain; version=0.0.4")
 
+    @app.get("/", include_in_schema=False)
+    def home() -> RedirectResponse:
+        return RedirectResponse("/app/")
+
+    app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="app")
+
+    @app.get("/v1/central-banks", dependencies=guarded)
+    def central_banks() -> dict[str, Any]:
+        """The latest FOMC and ECB statements: decision, reading and what changed."""
+        kit_ = kit.get()
+        return {"fomc": kit_.get_fomc_statement(""), "ecb": kit_.get_ecb_statement("")}
+
     @app.get("/health")
     def health() -> dict[str, Any]:
-        runs = sorted((data_dir / "runs").glob("*.json"))
+        runs = sorted((data_dir / "runs").glob("2*.json"))
         last = json.loads(runs[-1].read_text()) if runs else None
         return {
             "status": "ok",
@@ -179,7 +200,7 @@ def create_app(
         """Walk-forward record since 1970, plus the live paper track from the last run."""
         u = _universe(universe)
         out = call(lambda k: k.get_track_record(u, horizon))
-        runs = sorted((data_dir / "runs").glob("*.json"))
+        runs = sorted((data_dir / "runs").glob("2*.json"))
         out["live_track"] = json.loads(runs[-1].read_text()).get("track") if runs else None
         return out
 
@@ -264,6 +285,7 @@ def create_app(
                     )
                     ans = assistant.ask(
                         req.question,
+                        history=[(t.question, t.answer) for t in req.history],
                         on_tool=lambda c: events.put(
                             _sse(
                                 "tool",

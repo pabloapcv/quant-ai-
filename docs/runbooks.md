@@ -1,4 +1,4 @@
-# Atlas operations runbook
+# Ramon operations runbook
 
 Everything runs from the repo root (`/Users/pablopena/quant ai`) with `.venv/bin/atlas`
 (or `uv run atlas`). Secrets live only in the gitignored `.env`: `ATLAS_FRED_API_KEY`,

@@ -1,6 +1,6 @@
 """US real GDP nowcast research: mixed-frequency DFM + bridge, evaluated against GDPNow.
 
-Status: research only, **not** a published model output. Atlas reports the Atlanta Fed's
+Status: research only, **not** a published model output. Ramon reports the Atlanta Fed's
 GDPNow (point in time, from ALFRED vintages) as its GDP nowcast; see ``gdpnow_as_of``.
 
 Model: ``statsmodels`` ``DynamicFactorMQ`` (one VAR(2) factor, AR(1) idiosyncratic terms)
@@ -15,7 +15,7 @@ Real-time evaluation, 2012Q1-2025Q4 excluding 2020 (``atlas nowcast evaluate``),
 the BEA advance estimate, % SAAR:
 
 =================  ======  =====  ========  =====================
-before release     Atlas   DFM    GDPNow    s.d. of the outcome
+before release     Ramon   DFM    GDPNow    s.d. of the outcome
 =================  ======  =====  ========  =====================
 1 hour (52 q)      1.61    1.76   0.86      1.65
 30 days (37 q)     1.89    1.95   1.09      1.73

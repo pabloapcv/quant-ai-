@@ -234,3 +234,11 @@ async def test_failed_series_are_retried_once(
     assert "recovered on retry: FX.EURCNY" in by["ingest:ecb"].detail
     assert by["ingest:retry"].ok
     assert by["ingest:retry"].detail.startswith("1 recovered")
+
+
+def test_latest_run_ignores_release_day_logs(tmp_path: Path) -> None:
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    (runs / "20261022T101838Z.json").write_text("{}")
+    (runs / "releases-2026-10-22.json").write_text("{}")  # sorts after the pipeline runs
+    assert latest_run(tmp_path) == runs / "20261022T101838Z.json"

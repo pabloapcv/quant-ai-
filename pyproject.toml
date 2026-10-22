@@ -28,7 +28,8 @@ dependencies = [
 ]
 
 [project.scripts]
-atlas = "atlas.cli:app"
+ramon = "atlas.cli:app"
+atlas = "atlas.cli:app"  # kept: launchd jobs and scripts call it
 
 [dependency-groups]
 dev = [

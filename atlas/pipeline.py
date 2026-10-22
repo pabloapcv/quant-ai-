@@ -4,7 +4,7 @@ Each step runs independently: a failing source is recorded and the run continues
 agency's outage never stops the rest. Every run writes ``data/runs/<timestamp>.json``.
 
 Run it every day: sources that only publish their current values (Ken French, ECB, OECD,
-BIS, IMF) get true point-in-time history only from the days Atlas records them, and the
+BIS, IMF) get true point-in-time history only from the days Ramon records them, and the
 live track record exists only for views frozen before their outcome.
 """
 
@@ -372,5 +372,5 @@ async def run_daily(
 
 
 def latest_run(data_dir: Path) -> Path | None:
-    runs = sorted((data_dir / "runs").glob("*.json"))
+    runs = sorted((data_dir / "runs").glob("2*.json"))
     return runs[-1] if runs else None

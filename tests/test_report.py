@@ -53,7 +53,7 @@ def test_writer_and_red_team_grounded() -> None:
     rep = ReportWriter(client).write(FACTS, date(2026, 10, 16))
     assert rep.unsupported == []
     md = rep.markdown()
-    assert md.startswith("# Atlas weekly research note — 2026-10-16")
+    assert md.startswith("# Ramon weekly research note — 2026-10-16")
     assert "## Summary" in md
     assert "## Risks and counterpoints" in md
     assert "not investment advice" in md

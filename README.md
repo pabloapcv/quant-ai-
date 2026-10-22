@@ -1,4 +1,19 @@
-# Atlas — global quant AI research assistant
+# Ramon — global quant AI research assistant
+
+> **Ramon** (formerly Atlas). The command is `ramon` (`atlas` still works). The Python package
+> is still `atlas` and settings still use the `ATLAS_` prefix, so the scheduled jobs and `.env`
+> keep working.
+
+## Use it
+
+```bash
+ramon api serve          # then open http://127.0.0.1:8710/  (the web app)
+```
+
+The web app has a chat with the assistant (tool calls stream in; every number is checked
+against the engine data), the macro regime and the latest Fed/ECB decisions, model views
+per universe, an interactive scenario tool, historical analogs, and system status with the
+track record vs the 2021-2025 holdout. From a terminal: `ramon ask "..." --show-tools`.
 
 Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (macro regime engine), **Phase 3** in progress (signals + backtester). Phase 1 waits on a paid market-data vendor.
 
@@ -82,7 +97,7 @@ Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (
 - `atlas/models/nowcast.py` — GDP nowcast research: mixed-frequency DFM + bridge on 15
   monthly series, evaluated in real time vs GDPNow (`atlas nowcast evaluate`). It does not
   beat a constant forecast (RMSE 1.6 vs GDPNow 0.86 one hour before the advance release,
-  2012-2025 ex-2020), so Atlas reports GDPNow (point in time) as its nowcast in the regime
+  2012-2025 ex-2020), so Ramon reports GDPNow (point in time) as its nowcast in the regime
   tool; the Phase 2 "within 10% of GDPNow" criterion is not met. Details in the docstring.
 - `atlas/models/scenario.py` — `atlas scenario run --shock us10y=0.5`: same-month asset
   response to factor shocks (rates, breakeven, Baa credit spread, USD, oil, VIX); unshocked

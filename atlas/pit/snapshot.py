@@ -59,7 +59,7 @@ def _git(*args: str) -> str | None:
 
 
 def git_sha() -> str | None:
-    """Current commit of the Atlas code, if it is a git checkout."""
+    """Current commit of the Ramon code, if it is a git checkout."""
     return _git("rev-parse", "HEAD")
 
 

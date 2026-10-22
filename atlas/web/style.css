@@ -1,0 +1,82 @@
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --fg: #1d1d1b; --muted: #6b6b66; --line: #e3e3de;
+  --accent: #2a6fdb; --accent-fg: #ffffff; --pos: #1f8a4c; --neg: #c0392b; --warn: #b7791f;
+  --chip: #eef3fb; --radius: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141413; --panel: #1e1e1c; --fg: #ecece8; --muted: #9a9a93; --line: #33332f;
+    --accent: #5b93ee; --accent-fg: #0b0b0a; --pos: #4cc77f; --neg: #f07167; --warn: #e0b050;
+    --chip: #23324a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-size: 15px; line-height: 1.5; }
+.top { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 20px; }
+.brand { font-weight: 700; font-size: 20px; letter-spacing: 0.2px; }
+.brand span { font-weight: 400; font-size: 13px; color: var(--muted); margin-left: 6px; }
+nav { display: flex; flex-wrap: wrap; gap: 4px; }
+nav button { background: none; border: 0; color: var(--muted); padding: 6px 12px; border-radius: 999px; cursor: pointer; font: inherit; }
+nav button[aria-selected="true"] { background: var(--chip); color: var(--fg); font-weight: 600; }
+main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
+.tab { display: none; }
+.tab.active { display: block; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+.card h3 { margin: 0 0 10px; font-size: 15px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; }
+.tile .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile .l { color: var(--muted); font-size: 13px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+.pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; background: var(--chip); }
+.pill.ow { background: color-mix(in srgb, var(--pos) 18%, transparent); color: var(--pos); }
+.pill.uw { background: color-mix(in srgb, var(--neg) 18%, transparent); color: var(--neg); }
+.controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; margin-bottom: 14px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+label.check { flex-direction: row; align-items: center; gap: 6px; }
+select, input, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+button { font: inherit; cursor: pointer; }
+button[type="submit"], #send { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px; padding: 8px 18px; font-weight: 600; }
+button.ghost { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 8px; padding: 7px 12px; }
+button:disabled { opacity: 0.55; cursor: default; }
+.shocks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar > div { height: 100%; background: var(--accent); }
+.qrow { display: grid; grid-template-columns: 170px 1fr 52px; gap: 10px; align-items: center; margin: 6px 0; }
+/* chat */
+.chat { display: flex; flex-direction: column; gap: 14px; min-height: 40vh; }
+.msg { max-width: 860px; }
+.msg.user { align-self: flex-end; background: var(--chip); padding: 10px 14px; border-radius: 14px 14px 4px 14px; }
+.msg.bot { background: var(--panel); border: 1px solid var(--line); padding: 14px 16px; border-radius: 14px 14px 14px 4px; }
+.msg.bot table { margin: 8px 0; font-size: 14px; }
+.msg.bot p { margin: 6px 0; }
+.msg.bot ul { margin: 6px 0; padding-left: 20px; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.tools span { font-size: 12px; color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
+.check-line { font-size: 12px; color: var(--muted); margin-top: 8px; }
+.check-line.bad { color: var(--warn); }
+.err { color: var(--neg); }
+.hint p { color: var(--muted); }
+.examples { display: flex; flex-wrap: wrap; gap: 8px; }
+.examples .ex { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; color: var(--fg); font-size: 14px; }
+.ask { position: sticky; bottom: 0; margin-top: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
+.ask textarea { width: 100%; resize: vertical; border: 0; background: transparent; }
+.ask-row { display: flex; align-items: center; gap: 10px; }
+.ask-row .muted { flex: 1; font-size: 12px; text-align: right; }
+.disclaimer { font-size: 12px; color: var(--muted); text-align: center; }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -1px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+ul.changes { padding-left: 18px; margin: 6px 0; }
+ul.changes li { margin: 3px 0; }
+.added { color: var(--pos); } .removed { color: var(--neg); text-decoration: line-through; opacity: 0.8; }
+@media (max-width: 600px) { .qrow { grid-template-columns: 120px 1fr 44px; } main { padding: 14px 12px 60px; } }

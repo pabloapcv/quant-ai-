@@ -388,7 +388,7 @@ def _deliver(channels: Channels, alert: Alert, client: httpx.Client | None) -> d
         targets["ntfy"] = (channels.ntfy_topic_url, {"content": alert.message.encode()})
     slack = os.environ.get(channels.slack_webhook_env, "") if channels.slack_webhook_env else ""
     if slack:
-        targets["slack"] = (slack, {"json": {"text": f"Atlas: {alert.message}"}})
+        targets["slack"] = (slack, {"json": {"text": f"Ramon: {alert.message}"}})
     if not targets:
         return {}
     own = client is None
@@ -432,7 +432,7 @@ def run_alerts(
     store = PITStore(data_dir)
     cube = store.load_cube()
     if ic_monitor is None:
-        runs = sorted((data_dir / "runs").glob("*.json"))
+        runs = sorted((data_dir / "runs").glob("2*.json"))
         ic_monitor = json.loads(runs[-1].read_text()).get("ic_monitor", {}) if runs else {}
     inputs = AlertInputs(
         failed_steps=list(failed_steps), ic_monitor={k: dict(v) for k, v in ic_monitor.items()}

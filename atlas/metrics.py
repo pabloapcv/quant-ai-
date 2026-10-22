@@ -1,6 +1,6 @@
 """Operational metrics in Prometheus text format (PRD §12 observability).
 
-Everything is read from what Atlas already records (store knowledge times, the latest
+Everything is read from what Ramon already records (store knowledge times, the latest
 pipeline run, the usage ledger, alert logs, report metadata, the document store), so a
 scrape costs a few file reads and no computation. Served at ``GET /metrics`` by the API and
 printed by ``atlas metrics``.

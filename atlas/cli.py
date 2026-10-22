@@ -36,7 +36,7 @@ from atlas.signals.research import ResearchContext, family_pbo, run_gate_suite, 
 from atlas.signals.universes import UNIVERSES, get_universe
 from atlas.views.publish import build_views, evaluate, publish
 
-app = typer.Typer(no_args_is_help=True, help="Atlas quant research assistant.")
+app = typer.Typer(no_args_is_help=True, help="Ramon quant research assistant.")
 ingest_app = typer.Typer(no_args_is_help=True, help="Pull data from sources into the PIT store.")
 pit_app = typer.Typer(no_args_is_help=True, help="Query the point-in-time store.")
 snapshot_app = typer.Typer(no_args_is_help=True, help="Create and verify reproducible snapshots.")

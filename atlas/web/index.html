@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ramon</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Ramon <span>quant research assistant</span></div>
+    <nav id="tabs" role="tablist">
+      <button role="tab" data-tab="ask" aria-selected="true">Ask</button>
+      <button role="tab" data-tab="macro">Macro &amp; central banks</button>
+      <button role="tab" data-tab="views">Views</button>
+      <button role="tab" data-tab="scenario">Scenarios</button>
+      <button role="tab" data-tab="analogs">Analogs</button>
+      <button role="tab" data-tab="system">System</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Ask -->
+    <section id="tab-ask" class="tab active">
+      <div id="chat" class="chat" aria-live="polite">
+        <div class="hint">
+          <p>Ask Ramon about the macro regime, central banks, model views, scenarios or the track record. Every number in an answer is checked against the engine's data.</p>
+          <div class="examples">
+            <button class="ex">What did the Fed and the ECB do at their latest meetings?</button>
+            <button class="ex">What happens to US industries if the 10-year yield rises 100bp?</button>
+            <button class="ex">How reliable are the country views?</button>
+            <button class="ex">Which past periods look most like today's macro environment?</button>
+          </div>
+        </div>
+      </div>
+      <form id="ask-form" class="ask">
+        <textarea id="question" rows="2" placeholder="Ask a research question…" required></textarea>
+        <div class="ask-row">
+          <button type="button" id="clear" class="ghost">New conversation</button>
+          <span id="usage-line" class="muted"></span>
+          <button type="submit" id="send">Ask</button>
+        </div>
+      </form>
+      <p class="disclaimer">Research output from model views and historical backtests, not investment advice.</p>
+    </section>
+
+    <!-- Macro -->
+    <section id="tab-macro" class="tab">
+      <div id="macro-tiles" class="tiles"></div>
+      <div class="grid2">
+        <div class="card"><h3>Growth × inflation quadrant</h3><div id="quadrants"></div></div>
+        <div class="card"><h3>Pillars</h3><div id="pillars"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card" id="fomc-card"><h3>Federal Reserve</h3><div class="body"></div></div>
+        <div class="card" id="ecb-card"><h3>European Central Bank</h3><div class="body"></div></div>
+      </div>
+    </section>
+
+    <!-- Views -->
+    <section id="tab-views" class="tab">
+      <div class="controls">
+        <label>Universe <select id="views-universe"></select></label>
+        <label>Horizon <select id="views-horizon"><option value="3">3 months</option><option value="1">1 month</option></select></label>
+      </div>
+      <div class="card"><div id="views-head" class="muted"></div><div class="wrap"><table id="views-table"></table></div></div>
+      <p class="muted small">Stances are low-conviction leans unless the probability is far from 50%. The 2021–2025 holdout showed no reliable skill: see System.</p>
+    </section>
+
+    <!-- Scenario -->
+    <section id="tab-scenario" class="tab">
+      <form id="scenario-form" class="card">
+        <div class="controls">
+          <label>Universe <select id="scenario-universe"></select></label>
+          <label class="check"><input type="checkbox" id="same-regime"> Only months in today's regime</label>
+        </div>
+        <div class="shocks">
+          <label>10Y yield <input name="us10y" type="number" step="0.05" placeholder="pp, e.g. 1"></label>
+          <label>2Y yield <input name="us2y" type="number" step="0.05" placeholder="pp"></label>
+          <label>10Y breakeven <input name="breakeven10y" type="number" step="0.05" placeholder="pp"></label>
+          <label>Credit spread <input name="credit_spread" type="number" step="0.05" placeholder="pp"></label>
+          <label>US dollar <input name="usd" type="number" step="0.01" placeholder="fraction, -0.05"></label>
+          <label>Oil <input name="oil" type="number" step="0.01" placeholder="fraction, 0.2"></label>
+          <label>VIX <input name="vix" type="number" step="1" placeholder="points, 10"></label>
+        </div>
+        <button type="submit">Run scenario</button>
+      </form>
+      <div id="scenario-out"></div>
+    </section>
+
+    <!-- Analogs -->
+    <section id="tab-analogs" class="tab">
+      <div class="controls"><label>Universe <select id="analogs-universe"></select></label></div>
+      <div class="grid2">
+        <div class="card"><h3>Closest past macro states</h3><div class="wrap"><table id="analogs-table"></table></div></div>
+        <div class="card"><h3>What happened next (12 months, vs average)</h3><div class="wrap"><table id="analogs-fwd"></table></div></div>
+      </div>
+    </section>
+
+    <!-- System -->
+    <section id="tab-system" class="tab">
+      <div id="system-tiles" class="tiles"></div>
+      <div class="grid2">
+        <div class="card"><h3>Track record vs 2021–2025 holdout</h3><div class="wrap"><table id="track-table"></table></div></div>
+        <div class="card"><h3>Recent alerts</h3><div id="alerts"></div></div>
+      </div>
+      <div class="card"><h3>Settings</h3>
+        <label>API token (only if the server sets ATLAS_API_TOKEN) <input id="token" type="password" autocomplete="off"></label>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
