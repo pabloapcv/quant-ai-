@@ -173,7 +173,8 @@ class ViewEvaluation:
     brier_baseline: float  # always 0.5
     brier_improvement: float
     coverage: float  # share of realized excess returns inside [p10, p90]
-    hit_rate: float  # directional calls (non-neutral) that were right
+    hit_rate: float  # directional calls (non-neutral) that were right; nan if too few
+    directional_calls: int
     ow_minus_uw_annual: float  # mean excess of overweights minus underweights, annualized
     reliability: pl.DataFrame  # prob bucket -> mean prob, realized frequency, n
 
@@ -187,13 +188,24 @@ class ViewEvaluation:
         return out
 
 
-def evaluate(run: EnsembleRun, start: date | None = None) -> ViewEvaluation:
-    """Walk-forward scoring of every month's forecasts against what happened next."""
+MIN_CALLS_FOR_HIT_RATE = 20  # fewer directional calls: the hit rate is not reported
+
+
+def evaluate(
+    run: EnsembleRun, start: date | None = None, end: date | None = None
+) -> ViewEvaluation:
+    """Walk-forward scoring of every month's forecasts against what happened next.
+
+    Stances are derived on the full history first (they carry hysteresis), then the window
+    ``[start, end]`` is cut, so a window sees exactly the stances that were in force.
+    """
     from atlas.backtest.metrics import newey_west_tstat
 
     fc = with_stances(run.forecasts).drop_nulls(["score", "excess"])
     if start is not None:
         fc = fc.filter(pl.col("date") >= start)
+    if end is not None:
+        fc = fc.filter(pl.col("date") <= end)
     ic = (
         fc.group_by("date")
         .agg(pl.corr("score", "excess", method="spearman").alias("ic"))
@@ -249,7 +261,10 @@ def evaluate(run: EnsembleRun, start: date | None = None) -> ViewEvaluation:
         brier_baseline=base,
         brier_improvement=(base - brier) / base if base else math.nan,
         coverage=coverage,
-        hit_rate=float(hits) if hits is not None else math.nan,
+        hit_rate=float(hits)
+        if hits is not None and calls.height >= MIN_CALLS_FOR_HIT_RATE
+        else math.nan,
+        directional_calls=calls.height,
         ow_minus_uw_annual=float(spread) * 12 / run.config.horizon
         if spread is not None
         else math.nan,

@@ -59,17 +59,16 @@ def in_holdout(col: str = "date") -> pl.Expr:
 def holdout_scores(ctx: Any, cfg: Any) -> dict[str, Any]:
     """Ensemble and per-signal results on holdout months (dates whose outcome is inside it)."""
     from atlas.backtest.crosssection import backtest_signal
-    from atlas.models.expected_returns.ensemble import EnsembleRun, walk_forward
+    from atlas.models.expected_returns.ensemble import walk_forward
     from atlas.signals.research import signal_panel
     from atlas.views.publish import evaluate
 
     full = replace(ctx, start=None, end=None)  # fits may use pre-holdout history
     run = walk_forward(full, cfg)
     h = cfg.horizon
-    window = run.forecasts.filter(
-        (pl.col("date") >= HOLDOUT_START) & (pl.col("date").dt.offset_by(f"{h}mo") <= HOLDOUT_END)
-    )
-    ens = evaluate(EnsembleRun(config=run.config, forecasts=window, weights=run.weights))
+    # stances on the full history (hysteresis), then the window whose outcomes end by 2025
+    last = run.forecasts.filter(pl.col("date").dt.offset_by(f"{h}mo") <= HOLDOUT_END)["date"].max()
+    ens = evaluate(run, HOLDOUT_START, last)  # type: ignore[arg-type]
     signals: dict[str, dict[str, float]] = {}
     for name, sig in full.signals.items():
         if sig.ranking_of is not None:

@@ -347,12 +347,17 @@ class ToolKit:
         }
         opened = HoldoutLog(self.data_dir).openings(universe, "ensemble_v1")
         if opened and horizon == 3:
-            first = opened[0]
+            # the latest entry: corrections are appended, the log is never edited
+            first = opened[-1]
             ens = first.get("ensemble", {})
             out["holdout_2021_2025"] = {
                 "ic_mean": round(ens.get("ic_mean", float("nan")), 4),
                 "ic_tstat": round(ens.get("ic_tstat", float("nan")), 2),
-                "hit_rate": round(ens.get("hit_rate", float("nan")), 3),
+                # entries before 2026-10-22 recorded no call count: their hit rate is unreliable
+                "hit_rate": round(ens["hit_rate"], 3)
+                if "directional_calls" in ens and "hit_rate" in ens
+                else None,
+                "directional_calls": ens.get("directional_calls"),
                 "months": ens.get("months"),
                 "contaminated": first.get("contaminated", True),
                 "note": "The locked 2021-2025 holdout, opened once. Contaminated means the "

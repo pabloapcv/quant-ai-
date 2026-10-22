@@ -306,3 +306,16 @@ def test_gbm_combiner_is_point_in_time(run_and_ctx) -> None:  # type: ignore[no-
     assert_frame_equal(a, b, check_exact=False, rel_tol=1e-9, abs_tol=1e-12)
     with pytest.raises(ValueError, match="unknown combiner"):
         walk_forward(ctx, EnsembleConfig(combiner="magic"))
+
+
+def test_evaluate_window_and_call_counts(run_and_ctx) -> None:  # type: ignore[no-untyped-def]
+    from atlas.views.publish import MIN_CALLS_FOR_HIT_RATE
+
+    run, _, _ = run_and_ctx
+    dates = run.forecasts.select("date").unique().sort("date")["date"].to_list()
+    full = evaluate(run)
+    window = evaluate(run, dates[150], dates[170])
+    assert window.months <= 21 < full.months
+    assert full.directional_calls >= window.directional_calls
+    if window.directional_calls < MIN_CALLS_FOR_HIT_RATE:
+        assert np.isnan(window.hit_rate)  # too few calls: not reported
