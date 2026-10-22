@@ -41,6 +41,7 @@ class AnalogResult(BaseModel):
     current_state: dict[str, float]
     analogs: list[Analog]
     n_candidates: int
+    first_candidate: date | None = None  # earliest month eligible as an analog
 
 
 def state_matrix(comps: pl.DataFrame, columns: Sequence[str] = STATE_COLUMNS) -> pl.DataFrame:
@@ -103,6 +104,7 @@ def find_analogs(
             for i in chosen
         ],
         n_candidates=len(candidates),
+        first_candidate=months[candidates[0]] if candidates else None,
     )
 
 

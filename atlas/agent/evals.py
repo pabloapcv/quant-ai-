@@ -33,7 +33,7 @@ REGRESSION_POINTS = 3.0
 STOP_AFTER_ERRORS = 3  # e.g. exhausted credits or bad credentials: stop instead of failing all
 WEIGHTS = {"grounding": 30.0, "tools": 20.0, "judge": 50.0}
 JUDGE_MAX = {"correctness": 4, "calibration": 2, "policy": 2, "clarity": 2}
-TOOL_RESULT_CHARS = 6000
+TOOL_RESULT_CHARS = 12000  # per tool result shown to the judge
 
 JUDGE_PROMPT = """You grade answers from Atlas, a quantitative research assistant whose \
 numbers must come from its tools. You get the question, what the case expects, the tool \

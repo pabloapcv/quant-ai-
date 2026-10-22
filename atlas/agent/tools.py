@@ -39,6 +39,12 @@ from atlas.text.tone import load_tones
 from atlas.views.publish import build_views, evaluate
 
 UNIVERSE_ENUM = sorted(UNIVERSES)
+STATE_CONVENTIONS = {
+    "growth": "z-score composite; above 0 = growth above trend",
+    "inflation": "z-score composite; above 0 = inflation above trend",
+    "financial_conditions": "z-score composite; above 0 = tighter / more stress, "
+    "below 0 = looser / easier",
+}
 
 
 def _schema(props: dict[str, Any], required: list[str]) -> dict[str, Any]:
@@ -343,7 +349,10 @@ class ToolKit:
             "universe": universe,
             "horizon_months": horizon,
             "since": "1970-01",
+            "method": "walk-forward: each month's forecast uses only data available then",
             **summary,
+            "coverage_target": 0.8,  # the p10-p90 ranges are 80% intervals
+            "brier_baseline_meaning": "0.25 is a coin flip; lower is better",
         }
         opened = HoldoutLog(self.data_dir).openings(universe, "ensemble_v1")
         if opened and horizon == 3:
@@ -475,6 +484,10 @@ class ToolKit:
         rep = RegimeEngine(cube).run(at, with_hmm=True)  # second opinion on the quadrant
         out: dict[str, Any] = json.loads(rep.model_dump_json())
         out["gdp_nowcast"] = gdp_nowcast(cube, at)
+        out["conventions"] = {
+            **STATE_CONVENTIONS,
+            "quadrant_probs": "probabilities of the growth x inflation quadrants, summing to 1",
+        }
         return out
 
     def find_analogs(self, universe: str, as_of: str, k: int) -> dict[str, Any]:
@@ -531,9 +544,13 @@ class ToolKit:
                 for a in res.analogs
             ],
             "forward_excess_by_asset": forward,
+            "conventions": STATE_CONVENTIONS,
+            "candidate_months_from": res.first_candidate.isoformat()
+            if res.first_candidate
+            else None,
             "note": (
-                "Distance is Mahalanobis on the macro state (lower = closer). Excess returns "
-                "are fractions vs the equal-weight universe average. A small-sample "
+                "US macro state. Distance is Mahalanobis on the state (lower = closer). Excess "
+                "returns are fractions vs the equal-weight universe average. A small-sample "
                 "description of past episodes, not a backtested forecast or advice."
             ),
         }
@@ -621,13 +638,13 @@ class ToolKit:
                     "meeting_date": h.passage.doc.meeting_date.isoformat(),
                     "published": h.passage.doc.published_at.date().isoformat(),
                     "url": h.passage.doc.url,
-                    "text": h.passage.text[:900],
+                    "text": h.passage.text[:1600],
                     "relevance": round(h.score, 2),
                 }
                 for h in hits
             ],
-            "note": "Keyword (BM25) search. Quote the Fed's words; numbers in passages are "
-            "the Fed's, as of publication.",
+            "note": "Keyword (BM25) search. Quote only text shown in these passages, "
+            "verbatim; numbers in passages are the central bank's, as of publication.",
         }
 
     def get_fomc_statement(self, date: str) -> dict[str, Any]:
@@ -650,6 +667,7 @@ class ToolKit:
             "extracted_reading": None
             if tone is None
             else tone.model_dump(exclude={"doc_id", "model", "text_change_bp"}),
+            "stance_scale": "-2 very dovish .. 0 neutral .. +2 very hawkish",
         }
 
     def get_ecb_statement(self, date: str) -> dict[str, Any]:
@@ -670,6 +688,7 @@ class ToolKit:
             "extracted_reading": None
             if (tone := load_tones(self.data_dir, "ecb").get(cur.doc_id)) is None
             else tone.model_dump(exclude={"doc_id", "model", "text_change_bp"}),
+            "stance_scale": "-2 very dovish .. 0 neutral .. +2 very hawkish",
             "press_conference_opening": qa_doc.paragraphs[:6] if qa_doc else None,
             "press_conference_paragraphs": len(qa_doc.paragraphs) if qa_doc else 0,
         }
