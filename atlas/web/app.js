@@ -215,6 +215,10 @@
               <div class="small muted">${esc((e.financial_conditions.split(' (')[1] || '').replace(')', ''))}</div></div>
           </div></div>`);
       }
+      const wc = b.what_changed || { items: [] };
+      parts.push(`<div class="card"><h3>What changed since ${esc(dayName(wc.since))}</h3>${wc.items.length
+        ? `<ul class="changes">${wc.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
+        : '<p class="muted">No significant changes in the past month.</p>'}</div>`);
       parts.push(`<h2>Central banks</h2><div class="grid2">${b.central_banks.map((c) => `<div class="card">
           <div class="eyebrow">${esc(c.bank)}${c.meeting_date ? ` · ${esc(dayName(c.meeting_date))}` : ''}</div>
           <p class="sub">${esc(c.headline)}</p>
@@ -233,7 +237,7 @@
       parts.push(`<h2>Recent warnings</h2><div class="card">${b.alerts.length
         ? `<ul class="changes">${b.alerts.map((a) => `<li><span class="small muted">${esc(dayName(a.date))}</span> ${esc(a.message)}</li>`).join('')}</ul>`
         : '<p class="muted">Nothing notable in the last two weeks.</p>'}</div>`);
-      parts.push(`<div class="card"><h3>Go deeper</h3><div class="examples">${[
+      parts.push(`<div class="card no-print"><h3>Go deeper</h3><div class="examples">${[
         'What does the Fed decision mean for borrowing costs?',
         'Which industries tend to do well in an economy like this one?',
         'What would change your view on recession risk?',
@@ -242,6 +246,8 @@
       $$('.go', el).forEach((btn) => btn.addEventListener('click', () => { show('ask'); ask(btn.textContent); }));
     } catch (err) { failBox(el, err); }
   }
+
+  $('#print').addEventListener('click', () => window.print());
 
   // ---------------------------------------------------------------- What if
   const PRESETS = [

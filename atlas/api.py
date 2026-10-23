@@ -101,9 +101,14 @@ def _universe(universe: str) -> str:
 
 
 def create_app(
-    settings: Settings, *, cache_ttl_s: float = 3600.0, llm_client: Any = None
+    settings: Settings,
+    *,
+    cache_ttl_s: float = 3600.0,
+    llm_client: Any = None,
+    warm_briefing: bool = False,
 ) -> FastAPI:
-    """``llm_client`` overrides the metered Anthropic client (tests)."""
+    """``llm_client`` overrides the metered Anthropic client (tests); ``warm_briefing`` builds
+    the briefing in the background at startup so the first visitor doesn't wait for it."""
     app = FastAPI(
         title="Ramon API",
         version="0.1.0",
@@ -145,17 +150,24 @@ def create_app(
 
     app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="app")
 
+    briefing_cache: dict[str, Any] = {}
+    briefing_lock = threading.Lock()
+
+    def latest_run_name() -> str:
+        runs = sorted((data_dir / "runs").glob("2*.json"))
+        return runs[-1].name if runs else ""
+
     @app.get("/v1/briefing", dependencies=guarded)
     def briefing() -> dict[str, Any]:
         """Plain-language executive briefing, built by fixed rules from the engine's data."""
-        from atlas.briefing import build_briefing
+        from atlas.briefing import build_briefing, recent_alerts
 
-        cutoff = (datetime.now(UTC) - timedelta(days=14)).date().isoformat()
-        recent: list[dict[str, Any]] = []
-        for f in sorted((data_dir / "alerts").glob("*.jsonl")):
-            if f.stem >= cutoff:
-                recent += [json.loads(line) for line in f.read_text().splitlines() if line]
-        return build_briefing(kit.get(), recent[::-1])
+        recent = recent_alerts(data_dir, 14)
+        key = (datetime.now(UTC).date(), len(recent), latest_run_name())
+        with briefing_lock:  # a request during the startup warm-up waits for it
+            if briefing_cache.get("key") != key:  # ~10 s to build; data changes once a day
+                briefing_cache.update(key=key, value=build_briefing(kit.get(), recent))
+        return briefing_cache["value"]  # type: ignore[no-any-return]
 
     @app.get("/v1/central-banks", dependencies=guarded)
     def central_banks() -> dict[str, Any]:
@@ -341,4 +353,6 @@ def create_app(
         t = UsageLedger(data_dir).totals(datetime.now(UTC).date())
         return {"today": t, "daily_budget": settings.llm_daily_token_budget}
 
+    if warm_briefing:
+        threading.Thread(target=briefing, daemon=True).start()
     return app

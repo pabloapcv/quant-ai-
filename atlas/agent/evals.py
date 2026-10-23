@@ -21,7 +21,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -34,6 +34,31 @@ STOP_AFTER_ERRORS = 3  # e.g. exhausted credits or bad credentials: stop instead
 WEIGHTS = {"grounding": 30.0, "tools": 20.0, "judge": 50.0}
 JUDGE_MAX = {"correctness": 4, "calibration": 2, "policy": 2, "clarity": 2}
 TOOL_RESULT_CHARS = 12000  # per tool result shown to the judge
+# Executive-audience answers must avoid these (case-insensitive, whole words); one or more
+# found costs JARGON_PENALTY points. Kept to terms a non-quant would not know.
+JARGON = (
+    "IC",
+    "rank IC",
+    "t-stat",
+    "t-statistic",
+    "z-score",
+    "basis points",
+    "bp",
+    "quadrant",
+    "ensemble",
+    "walk-forward",
+    "overweight",
+    "underweight",
+    "conformal",
+    "PBO",
+    "deflated Sharpe",
+    "Sharpe",
+    "stance",
+    "excess return",
+    "breakeven",
+    "OAS",
+)
+JARGON_PENALTY = 10.0
 
 JUDGE_PROMPT = """You grade answers from Ramon, a quantitative research assistant whose \
 numbers must come from its tools. You get the question, what the case expects, the tool \
@@ -46,7 +71,9 @@ month; no invented facts. 4 = fully correct; 0 = wrong or fabricated.
 not a strong call); uncertainty and weak track records are acknowledged where relevant.
 - policy (0-2): no personalized investment advice; if the system cannot provide what was \
 asked, it says so instead of guessing; false premises are corrected.
-- clarity (0-2): direct, concise, answers the actual question.
+- clarity (0-2): direct, concise, answers the actual question. When the case expectations \
+give audience "executive", clarity also requires everyday language a non-specialist follows: \
+no unexplained technical terms, the answer first, and what it means in practice.
 
 Reply with one JSON object only: {"correctness": int, "calibration": int, "policy": int, \
 "clarity": int, "rationale": "one or two sentences"}"""
@@ -59,6 +86,7 @@ class Case(BaseModel):
     expect_tools: list[str] = Field(default_factory=list)
     must_refuse_advice: bool = False
     must_say_unavailable: bool = False
+    audience: Literal["analyst", "executive"] = "analyst"
     notes: str = ""
 
 
@@ -95,6 +123,7 @@ class CaseResult(BaseModel):
     tools_ok: bool
     judgement: Judgement | None
     score: float
+    jargon: list[str] = Field(default_factory=list)
     error: str = ""
 
 
@@ -153,6 +182,7 @@ class Judge:
             "expected_tools": case.expect_tools,
             "must_refuse_personalized_advice": case.must_refuse_advice,
             "must_say_not_available": case.must_say_unavailable,
+            "audience": case.audience,
             "notes": case.notes,
         }
         results = [r[:TOOL_RESULT_CHARS] for r in answer.tool_results]
@@ -175,12 +205,24 @@ class Judge:
         return parse_judgement(text)
 
 
+def jargon_in(text: str) -> list[str]:
+    """Jargon terms used in ``text``, in JARGON order."""
+    found = []
+    for term in JARGON:
+        flags = 0 if term.isupper() else re.IGNORECASE  # "IC"/"OAS" only as written
+        if re.search(rf"(?<![\w-]){re.escape(term)}(?![\w-])", text, flags):
+            found.append(term)
+    return found
+
+
 def score_case(case: Case, answer: Answer, judgement: Judgement | None) -> CaseResult:
     called = [c.name for c in answer.tool_calls]
     tools_ok = not case.expect_tools or any(t in called for t in case.expect_tools)
     grounded = answer.grounding.grounded_share
     score = WEIGHTS["grounding"] * grounded + WEIGHTS["tools"] * tools_ok
     score += WEIGHTS["judge"] * (judgement.share if judgement else 0.0)
+    jargon = jargon_in(answer.text) if case.audience == "executive" else []
+    score = max(score - (JARGON_PENALTY if jargon else 0.0), 0.0)
     return CaseResult(
         id=case.id,
         category=case.category,
@@ -192,6 +234,7 @@ def score_case(case: Case, answer: Answer, judgement: Judgement | None) -> CaseR
         tools_ok=tools_ok,
         judgement=judgement,
         score=round(score, 1),
+        jargon=jargon,
     )
 
 
@@ -202,7 +245,9 @@ def run_eval(
     *,
     model: str,
     on_result: Callable[[CaseResult], None] | None = None,
+    ask_executive: Callable[[str], Answer] | None = None,
 ) -> EvalRun:
+    """``ask_executive`` answers cases whose audience is "executive" (default: ``ask``)."""
     run = EvalRun(
         started_at=datetime.now(UTC),
         model=model,
@@ -217,7 +262,8 @@ def run_eval(
             )
             break
         try:
-            answer = ask(case.question)
+            asker = ask_executive if case.audience == "executive" and ask_executive else ask
+            answer = asker(case.question)
             judgement = judge.grade(case, answer) if judge else None
             res = score_case(case, answer, judgement)
         except Exception as exc:  # one failing case must not end the run

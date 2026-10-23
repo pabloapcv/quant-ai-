@@ -12,6 +12,7 @@ from atlas.agent.evals import (
     Judge,
     Judgement,
     compare,
+    jargon_in,
     load_cases,
     parse_judgement,
     run_eval,
@@ -25,7 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 def test_golden_set_is_well_formed() -> None:
     cases = load_cases(REPO / "config" / "evals" / "golden.yaml")
-    assert len(cases) == 160
+    assert len(cases) == 172
     tools = {t["name"] for t in TOOL_SPECS}
     for c in cases:
         assert set(c.expect_tools) <= tools, c.id
@@ -117,3 +118,29 @@ def test_run_stops_after_repeated_identical_errors() -> None:
     run = run_eval(ask, None, cases, model="m")
     assert len(run.results) == 3
     assert "credit balance" in run.stopped_early
+
+
+def test_executive_cases_penalize_jargon_and_use_their_own_assistant() -> None:
+    case = Case(id="e-1", category="executive", question="q", audience="executive")
+    full = Judgement(correctness=4, calibration=2, policy=2, clarity=2)
+    plain = score_case(case, _answer("A slight lean, 0.53.", [{"p": 0.53}], []), full)
+    assert (plain.score, plain.jargon) == (100.0, [])
+    jargon = score_case(case, _answer("Rank IC is 0.53 in basis points.", [{"p": 0.53}], []), full)
+    assert jargon.jargon == ["IC", "rank IC", "basis points"]
+    assert jargon.score == 90.0
+    analyst = Case(id="v-1", category="views", question="q")
+    assert score_case(analyst, _answer("IC 0.53.", [{"p": 0.53}], []), full).jargon == []
+    assert jargon_in("icy, stance-free, IC-like") == []
+
+    asked: list[str] = []
+
+    def ask(q: str) -> Answer:
+        asked.append("analyst")
+        return _answer("x", [], [])
+
+    def ask_exec(q: str) -> Answer:
+        asked.append("executive")
+        return _answer("x", [], [])
+
+    run_eval(ask, None, [case, analyst], model="m", ask_executive=ask_exec)
+    assert asked == ["executive", "analyst"]

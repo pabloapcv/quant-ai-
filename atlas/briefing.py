@@ -17,7 +17,10 @@ Wording rules (thresholds on the engine's own scales):
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 
@@ -145,40 +148,91 @@ def _plain_alert(a: dict[str, Any]) -> str:
     return str(a.get("message", ""))
 
 
-def build_briefing(kit: Any, alerts: list[dict[str, Any]]) -> dict[str, Any]:
-    reg = _safe(lambda: kit.get_regime(""))
+def _economy(reg: dict[str, Any]) -> dict[str, Any] | None:
+    if "error" in reg:
+        return None
+    g, i = reg["growth"]["score"], reg["inflation"]["score"]
+    fc = reg["financial_conditions"]["score"]
+    probs = reg["quadrant_probs"]
+    top = max(probs, key=probs.get) if probs else reg["regime"]
+    words, light = REGIME_WORDS.get(top, (str(top), "neutral"))
+    clear = (probs.get(top) or 0) >= 0.6
+    rec = reg["recession"]["prob_12m"] if reg.get("recession") else None
+    rec_word, rec_light = _recession(rec)
+    sentence = (
+        f"Growth is {_level(g, hot='', cold='')}, inflation is "
+        f"{_level(i, hot='running hot', cold='subdued')}, and financial conditions are "
+        f"{_conditions(fc).split(' (')[0]}. Recession risk over the next year is {rec_word}"
+        + (f" ({rec:.0%})" if rec is not None else "")
+        + "."
+    )
+    return {
+        "regime": words,
+        "regime_light": light,
+        "regime_confidence": "clear" if clear else "mixed signals",
+        "regime_probability": probs.get(top),
+        "sentence": sentence,
+        "growth": _level(g, hot="", cold=""),
+        "inflation": _level(i, hot="running hot", cold="subdued"),
+        "financial_conditions": _conditions(fc),
+        "recession": {"probability": rec, "word": rec_word, "light": rec_light},
+        "gdp_nowcast": reg.get("gdp_nowcast") or None,
+        "data_month": reg["data_month"],
+        "facts": {"growth_score": g, "inflation_score": i, "financial_conditions_score": fc},
+    }
+
+
+def _what_changed(
+    now: dict[str, Any] | None,
+    before: dict[str, Any] | None,
+    banks: list[dict[str, Any]],
+    since: date,
+) -> list[str]:
+    """Plain sentences on what moved since ``since`` (the earlier reading is point-in-time)."""
+    out: list[str] = []
+    if now and before:
+        if now["regime"] != before["regime"]:
+            out.append(
+                f"The overall picture shifted from '{before['regime'].lower()}' to "
+                f"'{now['regime'].lower()}'."
+            )
+        else:
+            p0, p1 = before["regime_probability"], now["regime_probability"]
+            if p0 is not None and p1 is not None and abs(p1 - p0) >= 0.05:
+                way = "firmed" if p1 > p0 else "weakened"
+                out.append(
+                    f"The '{now['regime'].lower()}' reading {way}: its odds went from "
+                    f"{p0:.0%} to {p1:.0%}."
+                )
+        r0, r1 = before["recession"]["probability"], now["recession"]["probability"]
+        if r0 is not None and r1 is not None and abs(r1 - r0) >= 0.03:
+            way = "rose" if r1 > r0 else "fell"
+            out.append(f"Recession risk {way} from {r0:.0%} to {r1:.0%}.")
+        elif r0 is not None and r1 is not None:
+            out.append(f"Recession risk was little changed ({r0:.0%} a month ago, {r1:.0%} now).")
+        for key, name in (
+            ("growth", "Growth"),
+            ("inflation", "Inflation"),
+            ("financial_conditions", "Financial conditions"),
+        ):
+            a, b = before[key].split(" (")[0], now[key].split(" (")[0]
+            if a != b:
+                out.append(f"{name} went from {a} to {b}.")
+    for bk in banks:
+        md = bk.get("meeting_date")
+        if md and md >= since.isoformat():
+            out.append(f"{bk['headline'][:-1]} on {md}.")
+    return out
+
+
+def build_briefing(
+    kit: Any, alerts: list[dict[str, Any]], today: date | None = None
+) -> dict[str, Any]:
+    today = today or datetime.now(UTC).date()
+    since = today - timedelta(days=30)
     out: dict[str, Any] = {"economy": None, "central_banks": [], "leans": [], "alerts": []}
-    if "error" not in reg:
-        g, i = reg["growth"]["score"], reg["inflation"]["score"]
-        fc = reg["financial_conditions"]["score"]
-        probs = reg["quadrant_probs"]
-        top = max(probs, key=probs.get) if probs else reg["regime"]
-        words, light = REGIME_WORDS.get(top, (str(top), "neutral"))
-        clear = (probs.get(top) or 0) >= 0.6
-        rec = reg["recession"]["prob_12m"] if reg.get("recession") else None
-        rec_word, rec_light = _recession(rec)
-        nowcast = reg.get("gdp_nowcast") or {}
-        sentence = (
-            f"Growth is {_level(g, hot='', cold='')}, inflation is "
-            f"{_level(i, hot='running hot', cold='subdued')}, and financial conditions are "
-            f"{_conditions(fc).split(' (')[0]}. Recession risk over the next year is {rec_word}"
-            + (f" ({rec:.0%})" if rec is not None else "")
-            + "."
-        )
-        out["economy"] = {
-            "regime": words,
-            "regime_light": light,
-            "regime_confidence": "clear" if clear else "mixed signals",
-            "regime_probability": probs.get(top),
-            "sentence": sentence,
-            "growth": _level(g, hot="", cold=""),
-            "inflation": _level(i, hot="running hot", cold="subdued"),
-            "financial_conditions": _conditions(fc),
-            "recession": {"probability": rec, "word": rec_word, "light": rec_light},
-            "gdp_nowcast": nowcast or None,
-            "data_month": reg["data_month"],
-            "facts": {"growth_score": g, "inflation_score": i, "financial_conditions_score": fc},
-        }
+    out["economy"] = _economy(_safe(lambda: kit.get_regime("")))
+    before = _economy(_safe(lambda: kit.get_regime(since.isoformat())))
     out["central_banks"] = [
         _bank("Federal Reserve", _safe(lambda: kit.get_fomc_statement(""))),
         _bank("ECB", _safe(lambda: kit.get_ecb_statement(""))),
@@ -192,6 +246,10 @@ def build_briefing(kit: Any, alerts: list[dict[str, Any]]) -> dict[str, Any]:
         for a in alerts
         if a.get("rule") not in HIDDEN_ALERTS
     ][:6]
+    out["what_changed"] = {
+        "since": since.isoformat(),
+        "items": _what_changed(out["economy"], before, out["central_banks"], since),
+    }
     out["trust_note"] = (
         "How far to trust the market leans: over 2021-2025, data the models never saw, "
         "their sector and country rankings did not reliably beat a simple average. Use them "
@@ -199,3 +257,65 @@ def build_briefing(kit: Any, alerts: list[dict[str, Any]]) -> dict[str, Any]:
         "are descriptions of published data, not forecasts."
     )
     return out
+
+
+def recent_alerts(data_dir: Path, days: int, today: date | None = None) -> list[dict[str, Any]]:
+    """Alerts logged in the last ``days`` days, newest first."""
+    cutoff = ((today or datetime.now(UTC).date()) - timedelta(days=days)).isoformat()
+    rows: list[dict[str, Any]] = []
+    for f in sorted((data_dir / "alerts").glob("*.jsonl")):
+        if f.stem >= cutoff:
+            rows += [json.loads(line) for line in f.read_text().splitlines() if line]
+    return rows[::-1]
+
+
+def _quarter(q: str) -> str:
+    """'2026Q3' -> 'Q3 2026'."""
+    return f"{q[4:]} {q[:4]}" if len(q) == 6 and q[4] == "Q" else q
+
+
+def to_markdown(b: dict[str, Any], as_of: date) -> str:
+    """The briefing as a short note to read or forward (same content as the web page)."""
+    lines = [f"# Ramon briefing, {as_of:%B} {as_of.day}, {as_of.year}", ""]
+    e = b.get("economy")
+    if e:
+        lines += ["## The economy", "", e["sentence"], ""]
+        lines.append(f"- **Overall picture:** {e['regime']} ({e['regime_confidence']})")
+        r = e["recession"]
+        if r["probability"] is not None:
+            lines.append(
+                f"- **Recession risk, next 12 months:** {r['word']} ({r['probability']:.0%})"
+            )
+        g = e.get("gdp_nowcast")
+        if g:
+            lines.append(
+                f"- **Growth right now:** {g['gdp_saar_pct']:.1f}% annual pace "
+                f"(Atlanta Fed estimate for {_quarter(g['quarter'])}, updated {g['updated']})"
+            )
+        lines += [f"- **Borrowing and market conditions:** {e['financial_conditions']}", ""]
+    wc = b.get("what_changed") or {}
+    lines += [f"## What changed since {wc.get('since', '')}", ""]
+    lines += [f"- {t}" for t in wc.get("items", [])] or ["- No significant changes."]
+    lines += ["", "## Central banks", ""]
+    for c in b.get("central_banks", []):
+        tone = f" Tone: {c['tone']}." if c.get("tone") else ""
+        lines.append(f"- **{c['bank']}** ({c.get('meeting_date', 'n/a')}): {c['headline']}{tone}")
+    lines += ["", "## Where the models lean (next 3 months)", ""]
+    for lean in b.get("leans", []):
+        if not lean.get("as_of"):
+            continue
+
+        def names(vs: list[dict[str, Any]]) -> str:
+            return ", ".join(f"{v['asset']} ({v['chance_beat_peers']:.0%})" for v in vs)
+
+        lines.append(
+            f"- **{lean['label']}:** slightly favored {names(lean['favored'])}; "
+            f"least favored {names(lean['least'])}. Percentages are the chance of beating peers."
+        )
+    lines += ["", f"_{b['trust_note']}_", ""]
+    if b.get("alerts"):
+        lines += ["## Recent warnings", ""]
+        lines += [f"- {a['date']}: {a['message']}" for a in b["alerts"]]
+        lines.append("")
+    lines.append("_Research based on public data and historical patterns, not investment advice._")
+    return "\n".join(lines) + "\n"

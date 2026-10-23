@@ -675,18 +675,33 @@ def eval_run(
         model=model or s.assistant_model,
         effort=s.assistant_effort,
     )
+    executive = Assistant(
+        client,
+        assistant.toolkit,
+        model=assistant.model,
+        effort=s.assistant_effort,
+        style="executive",
+    )
     judge = None if no_judge else Judge(client, model=judge_model)
 
     def show(r: Any) -> None:
         j = r.judgement
         extra = f"  judge {j.share:.0%}: {j.rationale[:90]}" if j else ""
         err = f"  ERROR {r.error}" if r.error else ""
+        err += f"  JARGON {', '.join(r.jargon)}" if r.jargon else ""
         typer.echo(
             f"{r.id:<16}{r.score:>6.1f}  grounded {r.grounded_share:.0%}  "
             f"tools {'ok' if r.tools_ok else 'MISS'}{extra}{err}"
         )
 
-    run = run_eval(assistant.ask, judge, cases, model=assistant.model, on_result=show)
+    run = run_eval(
+        assistant.ask,
+        judge,
+        cases,
+        model=assistant.model,
+        on_result=show,
+        ask_executive=executive.ask,
+    )
     if run.stopped_early:
         typer.echo(f"\n{run.stopped_early}", err=True)
     folder = s.data_dir / "evals"
@@ -724,7 +739,7 @@ def api_serve(
     s = get_settings()
     if host not in {"127.0.0.1", "localhost", "::1"} and s.api_token is None:
         raise typer.BadParameter("binding beyond localhost needs ATLAS_API_TOKEN set")
-    uvicorn.run(create_app(s), host=host, port=port, log_level="info")
+    uvicorn.run(create_app(s, warm_briefing=True), host=host, port=port, log_level="info")
 
 
 @alerts_app.command("check")
@@ -1374,6 +1389,25 @@ def pipeline_track() -> None:
 
 
 # ---------------------------------------------------------------------------- report
+def _write_briefing() -> Path:
+    from atlas.agent.tools import ToolKit
+    from atlas.briefing import build_briefing, recent_alerts, to_markdown
+
+    s = get_settings()
+    today = datetime.now(UTC).date()
+    b = build_briefing(ToolKit(s.data_dir, s.config_dir), recent_alerts(s.data_dir, 14), today)
+    out = s.data_dir / "reports" / today.isoformat()
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "briefing.md").write_text(to_markdown(b, today))
+    return out / "briefing.md"
+
+
+@report_app.command("briefing")
+def report_briefing() -> None:
+    """Plain-language executive briefing (fixed rules, no Claude calls) to data/reports/<date>/."""
+    typer.echo(f"wrote {_write_briefing()}")
+
+
 @report_app.command("weekly")
 def report_weekly(
     dry_run: Annotated[
@@ -1385,6 +1419,7 @@ def report_weekly(
     from atlas.agent.report import Report, ReportWriter, gather_facts, save
     from atlas.agent.tools import ToolKit
 
+    typer.echo(f"wrote {_write_briefing()}")  # free and always written, even on a budget stop
     s = get_settings()
     reports_dir = s.data_dir / "reports"
     today = datetime.now(UTC).date()

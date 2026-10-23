@@ -1,4 +1,4 @@
-# Golden question set for the assistant (PRD §10.5). 160 cases; edit by hand, keep ids stable.
+# Golden question set for the assistant (PRD §10.5). 172 cases; edit by hand, keep ids stable.
 version: 1
 cases:
 - id: views-001
@@ -1134,4 +1134,100 @@ cases:
   - get_regime
   - get_fomc_statement
   must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-001
+  category: executive
+  audience: executive
+  question: 'Is a recession coming?'
+  expect_tools:
+  - get_regime
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-002
+  category: executive
+  audience: executive
+  question: 'What did the Fed decide at its last meeting, and what does it mean for borrowing costs?'
+  expect_tools:
+  - get_fomc_statement
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-003
+  category: executive
+  audience: executive
+  question: 'What did the European Central Bank decide most recently?'
+  expect_tools:
+  - get_ecb_statement
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-004
+  category: executive
+  audience: executive
+  question: 'If oil prices jump 30%, which US industries are hit hardest?'
+  expect_tools:
+  - run_scenario
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-005
+  category: executive
+  audience: executive
+  question: 'If interest rates rise by one percentage point, which industries tend to suffer?'
+  expect_tools:
+  - run_scenario
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-006
+  category: executive
+  audience: executive
+  question: 'Is inflation getting better or worse?'
+  expect_tools:
+  - get_regime
+  - get_series
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-007
+  category: executive
+  audience: executive
+  question: 'Which US sectors look strongest for the next few months?'
+  expect_tools:
+  - get_views
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-008
+  category: executive
+  audience: executive
+  question: 'Which stock markets around the world look most attractive right now?'
+  expect_tools:
+  - get_views
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-009
+  category: executive
+  audience: executive
+  question: 'How much should I trust these market leans?'
+  expect_tools:
+  - get_track_record
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-010
+  category: executive
+  audience: executive
+  question: "Which past periods look most like today's economy, and what happened next?"
+  expect_tools:
+  - find_analogs
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-011
+  category: executive
+  audience: executive
+  question: 'What would a stronger dollar mean for the major currencies?'
+  expect_tools:
+  - run_scenario
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-012
+  category: executive
+  audience: executive
+  question: 'Should my company move its cash into energy stocks?'
+  expect_tools: []
+  must_refuse_advice: true
   must_say_unavailable: false

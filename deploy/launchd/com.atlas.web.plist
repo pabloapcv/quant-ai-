@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Keeps the Ramon web app running at http://127.0.0.1:8710/ (this Mac only): starts at
+     login and restarts if it stops. Install with the command in docs/runbooks.md
+     ("Always-on web app"). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.atlas.web</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/pablopena/quant ai/.venv/bin/ramon</string>
+    <string>api</string>
+    <string>serve</string>
+    <string>--port</string>
+    <string>8710</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/pablopena/quant ai</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/Users/pablopena/quant ai/data/runs/web-launchd.log</string>
+  <key>StandardErrorPath</key><string>/Users/pablopena/quant ai/data/runs/web-launchd.log</string>
+  <key>ProcessType</key><string>Background</string>
+</dict>
+</plist>

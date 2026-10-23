@@ -42,6 +42,25 @@ cp "deploy/launchd/com.atlas.ingest-releases.plist" ~/Library/LaunchAgents/ && l
 If the Mac's local 06:45 is after 08:30 ET (US west coast), the first slot runs as a
 catch-up; the daily pipeline still picks everything up the next morning.
 
+## Always-on web app (optional)
+
+`ramon api serve` serves the web app at http://127.0.0.1:8710/ (localhost only). To keep it
+running without a terminal (starts at login, restarts if it stops), install the template:
+
+```bash
+cp "deploy/launchd/com.atlas.web.plist" ~/Library/LaunchAgents/ && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.atlas.web.plist
+```
+
+Log: `data/runs/web-launchd.log`. Remove with
+`launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.atlas.web.plist`. The server reloads
+data on its own after each daily pipeline run, so it never needs a restart for new data.
+
+## Executive briefing
+
+`ramon report briefing` writes `data/reports/<date>/briefing.md`: the web app's Briefing page
+as a short note (fixed rules, no Claude calls). The Monday weekly job writes it first, so it
+exists even when the Claude note stops on the token budget.
+
 ## Daily pipeline: reading a run
 
 `atlas pipeline daily` prints one line per step; the same is in the latest `data/runs/*.json`

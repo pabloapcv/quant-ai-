@@ -1,6 +1,17 @@
+import json
+from datetime import date
+from pathlib import Path
 from typing import Any
 
-from atlas.briefing import _bank, _conditions, _level, _recession, build_briefing
+from atlas.briefing import (
+    _bank,
+    _conditions,
+    _level,
+    _recession,
+    build_briefing,
+    recent_alerts,
+    to_markdown,
+)
 
 
 def test_wording_thresholds() -> None:
@@ -74,3 +85,46 @@ def test_build_briefing() -> None:
             "message": "The odds of a 'soft growth, elevated inflation' economy rose above 50%.",
         }
     ]
+
+
+class MovedKit(Kit):
+    def get_regime(self, as_of: str) -> dict[str, Any]:
+        r = super().get_regime(as_of)
+        if as_of:  # a month earlier: stagflation-leaning, lower recession risk
+            r = {
+                **r,
+                "quadrant_probs": {"stagflation": 0.8, "goldilocks": 0.2},
+                "recession": {"prob_12m": 0.1},
+                "growth": {"score": 0.2},
+            }
+        return r
+
+    def get_fomc_statement(self, d: str) -> dict[str, Any]:
+        return {
+            "meeting_date": "2026-10-01",
+            "extracted_reading": {"action": "hold", "change_bp": 0, "stance": 0},
+        }
+
+
+def test_what_changed() -> None:
+    b = build_briefing(MovedKit(), [], today=date(2026, 10, 22))
+    assert b["what_changed"]["since"] == "2026-09-22"
+    assert b["what_changed"]["items"] == [
+        "The overall picture shifted from 'soft growth, elevated inflation' to "
+        "'healthy growth, contained inflation'.",
+        "Recession risk rose from 10% to 20%.",
+        "Growth went from modestly above trend to strong.",
+        "Federal Reserve held rates on 2026-10-01.",
+    ]
+
+
+def test_markdown_and_recent_alerts(tmp_path: Path) -> None:
+    b = build_briefing(MovedKit(), [], today=date(2026, 10, 22))
+    md = to_markdown(b, date(2026, 10, 22))
+    assert md.startswith("# Ramon briefing, October 22, 2026")
+    assert "Recession risk rose from 10% to 20%." in md
+    assert "not investment advice" in md
+    (tmp_path / "alerts").mkdir()
+    for day in ("2026-10-01", "2026-10-20"):
+        (tmp_path / "alerts" / f"{day}.jsonl").write_text(json.dumps({"at": day}) + "\n")
+    assert [a["at"] for a in recent_alerts(tmp_path, 14, date(2026, 10, 22))] == ["2026-10-20"]

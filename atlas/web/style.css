@@ -119,3 +119,11 @@ ul.leans li { display: flex; flex-direction: column; padding: 5px 0; border-bott
   label.mode { margin-left: 0; }
 }
 a { color: var(--accent); }
+.toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+@media print {
+  :root { --bg: #fff; --panel: #fff; --fg: #000; --muted: #444; --line: #ccc; }
+  .top nav, label.mode, .toolbar, .no-print, .disclaimer { display: none !important; }
+  .top { position: static; border: 0; }
+  .card { break-inside: avoid; }
+  body { font-size: 12px; }
+}
