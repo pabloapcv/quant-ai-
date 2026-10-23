@@ -1,181 +1,411 @@
-# Ramon — global quant AI research assistant
+# Ramon
 
-> **Ramon** (formerly Atlas). The command is `ramon` (`atlas` still works). The Python package
-> is still `atlas` and settings still use the `ATLAS_` prefix, so the scheduled jobs and `.env`
-> keep working.
+**An economy and markets research assistant that turns public data into plain-language
+briefings, and checks every number it tells you.**
 
-## Use it
+Ramon follows the US and global economy, central banks and financial markets. It explains
+what is happening and what it could mean for a business: in a one-page daily briefing, in
+one-click "what if" scenarios, and in a chat that answers questions in everyday language.
+Under the hood, a research engine keeps every figure exactly as it was first published,
+runs fixed statistical models on it, and an AI layer (Claude) explains the results without
+being allowed to make numbers up.
 
-```bash
-ramon api serve          # then open http://127.0.0.1:8710/  (the web app)
+> Research and decision support only. Ramon does not trade, and nothing it shows is
+> investment advice.
 
-The app opens on a plain-language **Briefing** (economy, recession risk, central banks, where the models lean and how far to trust them), **Ask Ramon** (answers in everyday language) and **What if…?** (one-click scenarios such as an oil spike or a rate rise). Tick **Analyst view** for the technical tabs and analyst-style answers.
+| | |
+|---|---|
+| **For** | Executives who want the "so what" (Briefing, Ask Ramon, What if), and analysts who want the detail behind it (Analyst view) |
+| **Runs on** | One computer (macOS today), opened in a web browser at `http://127.0.0.1:8710/` |
+| **Data** | Free public sources: St. Louis Fed, Ken French data library, OECD, ECB, BIS, IMF, Federal Reserve and ECB websites |
+| **AI** | Claude by Anthropic, for chat answers, the weekly note and reading central-bank statements |
+| **Status** | Working research system. Key limitation: the market rankings have **not** shown reliable skill on 2021-2025 data (see [Limitations](#7-limitations-read-this)) |
+
+## Contents
+
+1. [What you get](#1-what-you-get)
+2. [How it works](#2-how-it-works)
+3. [Where the data comes from](#3-where-the-data-comes-from)
+4. [What the models do](#4-what-the-models-do)
+5. [Why you can trust the numbers](#5-why-you-can-trust-the-numbers)
+6. [Track record](#6-track-record)
+7. [Limitations (read this)](#7-limitations-read-this)
+8. [Getting started](#8-getting-started)
+9. [Day-to-day operation](#9-day-to-day-operation)
+10. [Configuration](#10-configuration)
+11. [Running costs](#11-running-costs)
+12. [Reference: commands, API, project layout](#12-reference)
+13. [Quality and testing](#13-quality-and-testing)
+14. [Project status and roadmap](#14-project-status-and-roadmap)
+15. [Further documentation](#15-further-documentation)
+
+---
+
+## 1. What you get
+
+### The web app
+
+Start it with `ramon api serve` and open **http://127.0.0.1:8710/**.
+
+| Page | What it shows | Uses AI? |
+|---|---|---|
+| **Briefing** (home) | The economy in one sentence; overall picture, recession risk, current growth and borrowing conditions with traffic lights; what changed in the past month; what the Fed and ECB decided and their tone; where the models lean; recent warnings. Print or save it as a PDF. | No. Fixed rules turn numbers into sentences. |
+| **Your business** (on the Briefing) | Pick a US sector, a stock market abroad, or a currency you are exposed to. See the model lean and what drives it, how it moved in each what-if event, and what followed in the past periods most like today. | No |
+| **What if…?** | One-click events (oil up or down 30%, interest rates up or down 1 point, market panic, a stronger dollar, rising inflation fears) with a winners-and-losers chart for sectors, world stock markets, currencies or government bonds. | No |
+| **Ask Ramon** | Chat. Ask in your own words; answers come in plain language, with the data steps shown and a "✓ Every number checked" line. | Yes (Claude) |
+| **How it works** | A plain-language explanation of the data, models and checks, plus a glossary. | No |
+| **Analyst view** (checkbox) | Adds the technical pages: macro detail, model views with ranges, a custom scenario builder, historical analogs, and system status with the track record. Chat answers switch to analyst style. | Partly |
+
+### Reports and alerts
+
+- **Executive briefing note**: `ramon report briefing` writes the Briefing as a short
+  document to `data/reports/<date>/briefing.md`. It is written every Monday automatically.
+- **Weekly research note**: a longer analyst note drafted by Claude, reviewed by a second
+  "red team" pass, with every number checked (`ramon report weekly`, Mondays 07:00).
+- **Alerts**: rules in `config/alerts.yaml`, for example the recession probability crossing
+  40%, a jump in corporate borrowing spreads, a central-bank rate change or a model lean
+  flipping. They are logged daily and can be sent to ntfy or Slack once configured.
+
+### Other interfaces
+
+- **Command line**: `ramon ask "Is a recession coming?"` and about 20 command groups
+  ([reference](#commands)).
+- **HTTP API**: read-only JSON endpoints for everything the app shows, documented at
+  `http://127.0.0.1:8710/docs`.
+
+---
+
+## 2. How it works
+
+```mermaid
+flowchart LR
+    A["Public data sources<br/>Fed, OECD, ECB, BIS, IMF,<br/>Ken French, central-bank sites"] --> B["Point-in-time store<br/>every figure as first published,<br/>plus every revision"]
+    B --> C["Fixed models<br/>economy reading, recession risk,<br/>market rankings, scenarios, analogs"]
+    C --> D["Frozen daily views<br/>scored later against<br/>what actually happened"]
+    C --> E["Briefing, Your business,<br/>What if (rule-based text)"]
+    C --> F["Claude, via 13 data tools"]
+    F --> G["Number checker<br/>every figure must match<br/>a tool result"]
+    G --> H["Ask Ramon,<br/>weekly note"]
 ```
 
-The web app has a chat with the assistant (tool calls stream in; every number is checked
-against the engine data), the macro regime and the latest Fed/ECB decisions, model views
-per universe, an interactive scenario tool, historical analogs, and system status with the
-track record vs the 2021-2025 holdout. From a terminal: `ramon ask "..." --show-tools`.
+1. **Collect.** Every weekday morning a scheduled job pulls new data from each source. A
+   second job picks up scheduled US releases (jobs, inflation, retail sales and others)
+   shortly after they come out.
+2. **Store as it was known.** Each figure is saved with the date it became public, and
+   revisions are added rather than overwriting it. Ramon can therefore answer "what did we
+   know on 30 September 2008?" without being helped by later corrections. This prevents
+   the most common way research flatters itself.
+3. **Model.** Fixed, tested models turn the data into readings: the state of the economy,
+   recession risk, rankings of sectors, countries, currencies and bonds, and how markets
+   reacted to past events.
+4. **Freeze and score.** Each month's views are frozen and written once. When their
+   horizon has passed, they are scored against what actually happened. This is the live
+   track record, and it cannot be edited after the fact.
+5. **Explain.** The Briefing and What if pages turn the numbers into sentences with fixed
+   rules. The chat uses Claude, which can only see the engine's results through 13 data
+   tools, and an automatic checker compares every number in its answer with those results.
 
-Spec: [PRD.md](PRD.md). Current status: **Phase 0** (foundations), **Phase 2** (macro regime engine), **Phase 3** in progress (signals + backtester). Phase 1 waits on a paid market-data vendor.
+---
 
-## What exists today
-- `atlas/pit/` — append-only bitemporal Parquet store. Every read is point-in-time
-  (`as_of`, `realtime_panel`, `history`); snapshots pin exact data + config + code.
-- `atlas/connectors/fred.py` — FRED/ALFRED connector with full vintage history, rate
-  limiting, retries, raw-payload archiving, and API-key redaction.
-- `atlas/quality/` — Pandera data contracts that block bad writes; staleness checks.
-- `config/series.yaml` — canonical series catalog (PRD Appendix A + NBER recession dates).
-- `atlas/features/` — causal transforms (YoY, annualized, diff, trailing z) and a
-  point-in-time monthly feature matrix with a bounded ragged-edge fill.
-- `atlas/models/regime/` — growth / inflation / financial-conditions composites,
-  growth×inflation quadrant with probabilities, Gaussian HMM (BIC-selected states),
-  12-month recession probit with NBER label lag, a walk-forward evaluator, and historical
-  analog search (k-NN, Mahalanobis on the macro state; PRD §7.6).
-- `atlas/connectors/kenfrench.py` — Ken French data library (FF5 + momentum factors,
-  12 and 49 industry portfolios back to 1926), no key needed.
-- `atlas/connectors/sdmx.py` — ECB, OECD, BIS and IMF over SDMX: euro FX and yield curve,
-  14 country CLIs, share prices and 10Y yields, real effective FX, CPIs (no keys).
-- `atlas/signals/country.py`, `universes.py` — 14 country equity markets (USD since 1999;
-  9 developed markets in local currency since 1955): momentum, leading-indicator change,
-  falling yields, value and volatility signals through the same gates, views and portfolio.
-- `atlas/backtest/` — purged K-fold and combinatorial purged CV, IC / Newey-West t,
-  quantile long-short backtests with costs, PSR, deflated Sharpe, PBO (CSCV), trial log.
-- `atlas/signals/industry.py` — momentum (incl. vol-targeted), reversal, low-volatility,
-  long-term reversal, industry value (BE/ME, Fama-French June timing), value+momentum,
-  residual momentum vs FF3/FF5.
-- `docs/signals/` — generated signal cards (`atlas research cards`), one per signal.
-- `atlas/backtest/gates.py` — PRD §8.4 promotion gates; `atlas/models/regime/market.py`
-  gives the trend x volatility market regimes the regime gate uses.
-- `atlas/agent/` — the research assistant (Phase 6): Claude (`claude-opus-5-5`) calls the
-  quant engine through 13 tools (views, track records, gates, portfolios, series, regime,
-  historical analogs, scenarios, central-bank document search, FOMC and ECB statements);
-  a deterministic guard checks every number in the answer against the tool results and
-  gives Claude one repair turn. Needs `ANTHROPIC_API_KEY` or an `ant auth login` profile.
-- `atlas/agent/report.py` — `atlas report weekly`: engine facts gathered deterministically,
-  a Claude writer and a red-team pass, every number grounding-checked; saved to
-  `data/reports/<date>/` (`--dry-run` gathers facts without calling Claude).
-- `atlas/pipeline.py` — `atlas pipeline daily`: ingest every source, staleness check,
-  snapshot, freeze this month's views (write-once), score the live track, run alerts. Run it
-  daily: snapshot-only sources gain true point-in-time history only from recorded days.
-- `atlas/agent/usage.py` — LLM cost controls (PRD §10.6): every Claude call is metered to
-  `data/usage/<date>.jsonl`; a daily budget (`ATLAS_LLM_DAILY_TOKEN_BUDGET`, weighted tokens)
-  is a hard stop; system prompt, tools and the tool loop use prompt caching. `atlas usage`.
-- `atlas/agent/evals.py` — `atlas eval run`: the 160-question golden set
-  (`config/evals/golden.yaml`: views, drivers, track record, gates, portfolio, regime, series,
-  analogs, scenarios, documents, unavailable, advice, adversarial) scored 0-100 on grounding (30), tool
-  choice (20) and an Opus judge rubric (50); fails on a > 3-point drop vs
-  `data/evals/baseline.json` (`--set-baseline`). Every case calls Claude: filter with
-  `--category`, `--ids` or `--limit` for cheap checks.
-- Ensemble combiner option `--combiner gbm` (views build/evaluate, portfolio): a
-  walk-forward gradient-boosted ranker on the component z-scores (PRD §7.2's LightGBM ranker,
-  via scikit-learn). Better than the IC-weighted default on 3 of 6 universes, worse on 3, so
-  the default is unchanged; the comparison table is in the ensemble module's docstring.
-- `atlas/text/ecb.py` — ECB monetary policy statements and press-conference Q&A transcripts
-  from ecb.europa.eu (1998 onward, 5-second crawl delay per the ECB's robots.txt), stored as
-  `statement` and `press_conference` documents; daily sync of the recent years in the
-  pipeline. Searchable with `search_documents` (bank filter) and `get_ecb_statement`.
-- `atlas/signals/library.py` — published anomalies on any return panel (12-7 momentum,
-  same-month seasonality, low beta, idiosyncratic volatility, 52-week high, MAX, skewness)
-  and macro-sensitivity tilts (rates, oil; PRD §6.4); country, FX and bond universes add their
-  own (term spread, currency momentum, carry change, relative slope, curve flattening, easing,
-  flight to quality). Phase 3 status against its exit criteria: `docs/phase3_status.md`.
-- `atlas/signals/fx.py` — G10 FX vs the US dollar (`fx_g10`, 8 currencies, 1999 onward): ECB
-  month-end rates plus the carry earned at OECD 3-month rates; carry, momentum and long-term
-  reversal signals through the same gates, views, portfolio and live track. Carry is the one
-  strong signal (IC t 3.7, positive in 4 of 4 regimes); the ensemble's probabilities are not
-  yet informative (Brier at 0.25).
-- `atlas/signals/rates.py` — 9 developed-market 10-year government bonds (`rates_dev`),
-  hedged, excess over cash, returns from yields (duration 8): term-spread carry, momentum,
-  yield value and growth-slowdown signals. Carry is again the strongest (IC t 2.9) but the
-  ensemble shows no skill yet (walk-forward IC t 1.4, portfolio IR -0.11); views are frozen
-  daily so the live track judges it.
-- `atlas/text/` — central-bank text (PRD §6.6): FOMC statements and minutes from
-  federalreserve.gov (2006 onward; `atlas text sync`, daily in the pipeline), stored point in
-  time; BM25 passage search (`atlas text search`), statement-to-statement changes
-  (`atlas text show`), and a Claude Haiku reading of each statement (action, size, stance -2..+2,
-  dissents; size checked against the text; `atlas text tone`). Tools: `search_documents`,
-  `get_fomc_statement`.
-- `atlas/models/nowcast.py` — GDP nowcast research: mixed-frequency DFM + bridge on 15
-  monthly series, evaluated in real time vs GDPNow (`atlas nowcast evaluate`). It does not
-  beat a constant forecast (RMSE 1.6 vs GDPNow 0.86 one hour before the advance release,
-  2012-2025 ex-2020), so Ramon reports GDPNow (point in time) as its nowcast in the regime
-  tool; the Phase 2 "within 10% of GDPNow" criterion is not met. Details in the docstring.
-- `atlas/models/scenario.py` — `atlas scenario run --shock us10y=0.5`: same-month asset
-  response to factor shocks (rates, breakeven, Baa credit spread, USD, oil, VIX); unshocked
-  factors move by their conditional expectation; 80% block-bootstrap bands (PRD §7.6).
-- `atlas/alerts.py` — rules in `config/alerts.yaml` (regime-probability crossings, recession
-  > 40%, HY OAS +50bp/week, VIX/VIX3M > 1, view flips, pipeline failures, FOMC/ECB rate
-  changes), evaluated at the
-  end of every daily run with cooldown and rate limit. Logged to `data/alerts/`; ntfy and
-  Slack delivery are off until configured (`atlas alerts check` runs them by hand).
-- `atlas/api.py` — `atlas api serve`: read-only FastAPI over the same tools (regime, views,
-  frozen views, track record, portfolio, gates, analogs, scenario, series, alerts,
-  snapshots, usage) plus `POST /v1/chat` (Server-Sent Events: tool calls, then the grounded
-  answer); OpenAPI docs at `/docs`. Localhost only unless `ATLAS_API_TOKEN` is set.
-- `atlas/metrics.py` — Prometheus metrics (`GET /metrics`, `atlas metrics`): data age per
-  source, per-step pipeline status and duration, stale series, live-track months, Claude
-  tokens, budget and cache hit rate, alerts today, report grounding, stored documents,
-  feature PSI. Read from recorded state only, so scrapes are cheap.
-- `atlas/views/models.py` — champion/challenger (PRD §9): the published views come from
-  the champion (`ens_v1`, IC-weighted); each challenger (`ens_v1_gbm`, the gradient-boosted
-  combiner) is frozen daily from the same snapshot under `gold/challengers/<version>/` and
-  scored by the same live track (`atlas pipeline track`, metric `atlas_live_track_rank_ic`).
-- `atlas/views/reproduce.py` — `atlas reproduce <view_id>`: rebuilds a frozen view from its
-  pinned data snapshot only (later data invisible), verifies the snapshot's hashes, and
-  compares every view with what was published; flags a different or uncommitted code state.
-  The daily pipeline and reproduce share one view-building function.
-- `atlas/releases.py` — `atlas ingest releases`: release-calendar ingestion (PRD §9) of the
-  day's timed FRED releases a minute after publication, polling up to 30 minutes; launchd
-  template in `deploy/launchd/` (not installed by default).
-- `atlas/views/track.py` — `atlas pipeline track`: frozen views scored once their horizon
-  has elapsed (the live paper track, immune to hindsight).
-- `atlas/quality/drift.py` — live-vs-backtest IC monitor (alert rule `live_ic_drift`) and a
-  feature PSI diagnostic in every run report (not an alert: see the module docstring).
-- `docs/runbooks.md` — operations: scheduled jobs, reading a pipeline run, alerts, recovery,
-  evals, API.
-- `atlas/backtest/holdout.py` — the locked 2021-2025 holdout (PRD §8.2): research with
-  `atlas research gates --exclude-holdout`; `atlas research holdout open --reason ...` scores
-  the ensemble and each signal on holdout months only, logs the opening
-  (`data/research/holdout_log.jsonl`) and refuses a second one. Every universe built so far
-  was developed on the full sample, so its logged opening is marked contaminated. Holdout
-  3-month ensemble IC: ind12 +0.024, ind49 +0.018, ctry_dev_lcl +0.018, fx_g10 +0.044,
-  ctry_usd -0.065, rates_dev -0.044 (all |t| < 1.2): no reliable skill in 2021-2025.
-- `tests/test_leakage.py` — the look-ahead leakage suite (blocking in CI): future-vintage
-  injection, as-of vs brute force, shuffled-target IC, timestamp audits (store, features, text).
+## 3. Where the data comes from
 
-## Quickstart
+All sources are free and public. Only FRED needs a (free) key.
+
+| Source | What Ramon uses | Key needed |
+|---|---|---|
+| **St. Louis Fed (FRED / ALFRED)** | US growth, jobs, inflation, interest rates, credit spreads, market volatility, with full revision history; Atlanta Fed GDPNow | Free FRED key |
+| **Kenneth French data library** (Dartmouth) | Returns for 12 and 49 US industries and standard market factors, back to 1926 | No |
+| **OECD** | Leading indicators, share prices and 10-year yields for 14 countries | No |
+| **ECB** | Euro exchange rates and yield curve; monetary-policy statements and press-conference transcripts | No |
+| **BIS, IMF** | Real effective exchange rates, consumer prices | No |
+| **Federal Reserve website** | FOMC statements and minutes | No |
+
+The catalog of 269 series is in `config/series.yaml`. Raw downloads are archived under
+`data/raw/` so any figure can be traced back to its source.
+
+**Not included yet:** individual company prices and fundamentals (needs a paid vendor, see
+[roadmap](#14-project-status-and-roadmap)), earnings-call transcripts and news.
+
+---
+
+## 4. What the models do
+
+| Reading | Method, in plain terms |
+|---|---|
+| **Economy (growth, inflation, financial conditions)** | Dozens of indicators combined into three scores relative to trend, and the probability of each of four "economic weather" types (healthy growth; strong growth with rising inflation; soft growth with elevated inflation; slowing growth with easing inflation). A second statistical model gives an independent opinion. |
+| **Recession risk (12 months)** | A statistical model trained on past US recessions as dated by the NBER, using only data available at each point in time. |
+| **Current growth** | The Atlanta Fed's GDPNow estimate. Ramon's own free-data nowcast did not beat it, so GDPNow is shown instead. |
+| **Market leans** | For US industries, country stock markets, major currencies and government bonds: a combination of well-studied signals (price trends, valuation, steadiness, interest-rate advantage, leading indicators), giving each asset's chance of beating its peers over 1 and 3 months, with a likely range. |
+| **What if…?** | How each asset moved in the same month as past moves in oil, interest rates, the dollar, market fear and inflation expectations, estimated on about 20 years of monthly history. |
+| **Similar periods** | The past months whose economic readings most resemble today's, and how each asset did over the following year. |
+| **Central-bank tone** | Claude reads each new Fed and ECB statement once and records the decision and tone (from strongly dovish to strongly hawkish). The rate decision is also extracted by fixed rules as a cross-check. |
+
+Every signal has a "card" with its research results in `docs/signals/`. The full
+specification is in [PRD.md](PRD.md).
+
+---
+
+## 5. Why you can trust the numbers
+
+| Safeguard | What it guarantees |
+|---|---|
+| **Point-in-time data** | Models and backtests see only what was public at the time, including the unrevised first release. A dedicated test suite tries to leak future data and must fail to do so before any change can be merged. |
+| **Rule-based briefing** | The Briefing, Your business and What if pages contain no AI-written text: the same data always gives the same words. |
+| **Number checker** | Every number in a chat answer or weekly note is compared with the engine's results. Claude gets one chance to fix any mismatch; if one remains, the answer is flagged with ⚠. |
+| **Locked holdout** | 2021-2025 was set aside as test data the models were never tuned on. It can be opened only once per model family, and every opening is logged. |
+| **Frozen views** | Each month's views are written once and later scored against reality; they cannot be edited. |
+| **Reproducibility** | `ramon reproduce <view_id>` rebuilds any published view from its pinned data snapshot and confirms it matches. |
+| **Strict promotion gates** | A signal is promoted only if it passes six statistical tests, including corrections for having tried many ideas. |
+| **Answer testing** | A set of 172 test questions is scored on number accuracy, use of the right data, and an independent AI grader's view of correctness, honesty about uncertainty and clarity. Executive-style answers also lose points for jargon. |
+| **No advice** | The assistant declines personalized investment advice and says when something is not available rather than guessing. |
+
+---
+
+## 6. Track record
+
+The honest summary is that **the economic readings describe published data well, but the
+market rankings have not yet shown reliable predictive skill on data they never saw.**
+
+| Test | Result |
+|---|---|
+| Recession model (point-in-time backtest) | Separates the run-up to recessions from other periods well (AUC 0.90, where 0.5 is a coin flip and 1.0 is perfect) |
+| Market rankings, 2021-2025 holdout (3-month) | Correlation with actual outcomes between -0.065 and +0.044 across the six markets covered; none statistically significant. In plain terms: no better than a simple average. |
+| Signal promotion gates | 0 of 84 signal-market pairs pass all six gates; 14 pass five of six |
+| Assistant answers | 97.3 / 100 on the analyst question set; 96.2 / 100 on the executive questions, with every number traced to the data |
+
+That is why the app labels the market leans as "context for discussion, not calls". The
+live paper track (views frozen each month and scored later) keeps building evidence
+automatically. See `docs/phase3_status.md` for the full research status.
+
+---
+
+## 7. Limitations (read this)
+
+- **The market leans are weak evidence.** See the [track record](#6-track-record). Use the
+  economy and central-bank readings as descriptions of the present, and the leans only as
+  a prompt for discussion.
+- **"What if" is history, not a forecast.** It shows how assets usually moved together in
+  the same month. Real events rarely repeat history exactly.
+- **Coverage.** US industries, 14 country stock markets, 8 major currencies and 9
+  government bond markets. No individual companies, credit products, commodities or
+  emerging-market currencies yet.
+- **Monthly data.** Most economic data is monthly and published with a delay. The Briefing
+  says which month it reflects.
+- **Single machine.** Ramon runs on one computer and serves the web app on that computer
+  only, unless an access token is set.
+- **AI dependency.** Ask Ramon and the weekly note need an Anthropic API key and use paid
+  tokens. Everything else works without them.
+- **Not investment advice.** Ramon is a research tool and does not place trades.
+
+---
+
+## 8. Getting started
+
+### Requirements
+
+- macOS or Linux with Python 3.12 or newer
+- [`uv`](https://docs.astral.sh/uv/) (Python package manager)
+- A free [FRED API key](https://fredaccount.stlouisfed.org/apikeys)
+- Optional, for chat and the weekly note: an [Anthropic API key](https://platform.claude.com/settings/keys)
+
+### Install
+
 ```bash
+git clone https://github.com/pabloapcv/quant-ai-.git ramon && cd ramon
 uv sync --all-groups
-cp .env.example .env            # add ATLAS_FRED_API_KEY
-uv run atlas catalog list
-uv run atlas ingest fred US.CPI.CORE US.LABOR.UNRATE
-uv run atlas pit as-of US.CPI.CORE --at 2020-04-30
-uv run atlas pit history US.LABOR.NFP 2020-04-01
-uv run atlas ingest fred --all          # whole catalog with ALFRED vintages
-uv run atlas regime now
-uv run atlas regime now --at 2008-09-30   # point-in-time: only what was known then
-uv run atlas regime backtest --start 1995-01-01 --out regime_bt.csv
-uv run atlas regime analogs --universe ind12 --k 10   # closest past macro states + what sectors did next
-uv run atlas ingest kenfrench --all     # free, no key
-uv run atlas ingest sdmx                # ECB, OECD, BIS, IMF; free, no keys
-uv run atlas research signal mom_12_1 --universe ind49
-uv run atlas research family momentum --universe ind49   # PBO across configs
-uv run atlas research gates --universe ind49             # PRD promotion gates
-uv run atlas views build --universe ctry_dev_lcl         # country views
-uv run atlas research cards --universe ind49             # regenerate docs/signals
-uv run atlas ask "Which developed markets do the models favour, and how reliable is that?"
-uv run atlas pipeline daily                 # the whole daily run
-uv run atlas report weekly                  # weekly research note (writer + red team)
-uv run atlas pipeline track                 # live track record of frozen views
-uv run atlas scenario run --shock credit_spread=1 --universe ind12
-uv run atlas alerts check                   # evaluate alert rules now
-uv run atlas api serve                      # http://127.0.0.1:8710/docs
-uv run atlas eval run --category advice     # assistant eval on a slice of the golden set
-uv run atlas snapshot create
+cp .env.example .env
 ```
 
-## Checks (same as CI)
+Edit `.env` and fill in `ATLAS_FRED_API_KEY` (and `ANTHROPIC_API_KEY` for the chat). The
+`.env` file is never committed.
+
+### Load the data (first time)
+
+```bash
+uv run ramon ingest fred --all      # US economic data with full revision history
+uv run ramon ingest kenfrench --all # US industry returns and factors
+uv run ramon ingest sdmx            # OECD, ECB, BIS, IMF
+uv run ramon pipeline daily         # everything else: text, views, snapshot, alerts
+```
+
+The first full load takes a while; later daily runs only fetch what is new.
+
+### Open the app
+
+```bash
+uv run ramon api serve
+```
+
+Then open **http://127.0.0.1:8710/**. The server prepares the Briefing and the Your
+business data in the background as it starts, so the first page may take up to a minute.
+
+---
+
+## 9. Day-to-day operation
+
+Ramon runs itself through scheduled jobs (macOS launchd). After installation, nobody needs
+to start anything except the web app.
+
+| Job | When | What it does | Output |
+|---|---|---|---|
+| Daily pipeline | Weekdays 06:30 | Ingest all sources, quality checks, snapshot, freeze views, score the live track, run alerts | `data/runs/` |
+| Release-day ingest | Weekdays 06:45 | Picks up the day's scheduled US releases shortly after publication | `data/runs/releases-<date>.json` |
+| Weekly notes | Mondays 07:00 | Executive briefing note, then the Claude-written research note | `data/reports/<date>/` |
+| Web app (optional) | Always | Keeps the app running at login and restarts it if it stops | `data/runs/web-launchd.log` |
+
+The job definitions and install commands are in `deploy/launchd/` and
+[docs/runbooks.md](docs/runbooks.md), which also covers reading a run report, alerts,
+recovery and monitoring. If the Mac is asleep at a scheduled time, the job runs when it
+wakes.
+
+---
+
+## 10. Configuration
+
+Settings come from environment variables or `.env`. The `ATLAS_` prefix is kept from the
+project's earlier name so existing jobs keep working.
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `ATLAS_FRED_API_KEY` | FRED access (required) | none |
+| `ANTHROPIC_API_KEY` | Claude access for chat, weekly note and statement reading | none (or `ant auth login`) |
+| `ATLAS_LLM_DAILY_TOKEN_BUDGET` | Hard daily cap on Claude usage, in weighted tokens (0 = no cap) | 3,000,000 |
+| `ATLAS_ASSISTANT_MODEL` | Claude model for the assistant | `claude-opus-5-5` |
+| `ATLAS_API_TOKEN` | Required to serve the app beyond this computer | none (localhost only) |
+| `ATLAS_DATA_DIR` | Where data, reports and logs live | `data` |
+| `ATLAS_LOG_LEVEL` | Logging detail | `INFO` |
+
+Other configuration files:
+
+- `config/series.yaml`: the data series catalog
+- `config/alerts.yaml`: alert rules, thresholds and delivery (ntfy or Slack)
+- `config/evals/golden.yaml`: the assistant's test questions
+
+---
+
+## 11. Running costs
+
+- **Data:** free. All current sources are public.
+- **Claude:** pay-as-you-go through Anthropic. Usage is metered on every call
+  (`ramon usage`) and stops at the daily budget. The Briefing, Your business and What if
+  pages use no tokens. A chat question typically uses tens of thousands of weighted
+  tokens; prompt caching reduces repeat costs.
+- **Computer:** runs on an ordinary Mac. The data store is about 100 MB.
+
+---
+
+## 12. Reference
+
+### Commands
+
+`ramon` and `atlas` are the same program. Run `ramon <group> --help` for details.
+
+| Group | Examples |
+|---|---|
+| Everyday | `ramon api serve`, `ramon ask "..."`, `ramon report briefing`, `ramon report weekly` |
+| Economy | `ramon regime now`, `ramon regime now --at 2008-09-30`, `ramon regime analogs --universe ind12` |
+| Markets | `ramon views build --universe ctry_dev_lcl`, `ramon portfolio ...`, `ramon scenario run --shock oil=0.3 --universe ind12` |
+| Central banks | `ramon text ...` (FOMC and ECB statements, minutes, search) |
+| Data | `ramon ingest fred --all`, `ramon ingest kenfrench --all`, `ramon ingest sdmx`, `ramon catalog list`, `ramon pit as-of US.CPI.CORE --at 2020-04-30` |
+| Operations | `ramon pipeline daily`, `ramon pipeline track`, `ramon alerts check`, `ramon snapshot create`, `ramon reproduce <view_id>`, `ramon usage`, `ramon metrics` |
+| Research | `ramon research signal mom_12_1 --universe ind49`, `ramon research gates --exclude-holdout`, `ramon research cards`, `ramon nowcast ...` |
+| Quality | `ramon eval run --category executive` |
+
+### API
+
+All endpoints are read-only except chat. Interactive documentation is at `/docs`.
+
+| Endpoint | Returns |
+|---|---|
+| `GET /v1/briefing` | The plain-language Briefing |
+| `GET /v1/lens?market=&asset=` | Your business view for a sector (`ind12`), stock market (`ctry_usd`) or currency (`fx_g10`) |
+| `GET /v1/presets` | The one-click what-if events |
+| `POST /v1/scenario` | A what-if run for any combination of shocks |
+| `POST /v1/chat` | Ask Ramon (streamed: data steps, then the checked answer) |
+| `GET /v1/regime`, `/v1/central-banks` | Economy reading; latest Fed and ECB decisions |
+| `GET /v1/views`, `/v1/views/frozen`, `/v1/views/{id}` | Model views, live and frozen |
+| `GET /v1/track-record`, `/v1/gates`, `/v1/portfolio`, `/v1/analogs` | Research detail |
+| `GET /v1/series/{id}`, `/v1/catalog`, `/v1/universes` | Data access |
+| `GET /v1/alerts`, `/v1/usage`, `/v1/snapshots/{id}`, `/health`, `/metrics` | Operations |
+
+### Project layout
+
+```
+atlas/                Python package (the engine)
+  connectors/         data sources: FRED/ALFRED, Ken French, SDMX (OECD, ECB, BIS, IMF)
+  pit/                point-in-time store and snapshots
+  quality/            data contracts, staleness and drift checks
+  features/           economic indicators as known at each date
+  models/             economy reading, recession risk, nowcast, return models, scenarios, risk
+  signals/            market signals per universe (industries, countries, FX, bonds)
+  backtest/           backtesting, statistical gates, the locked holdout
+  views/              publishing, freezing, scoring and reproducing views
+  text/               Fed and ECB documents, search, tone readings
+  agent/              Claude assistant, its 13 tools, number checker, evals, weekly note
+  briefing.py         rule-based Briefing
+  lens.py             Your business views and the what-if events
+  api.py, web/        HTTP API and the web app
+  pipeline.py         the daily run
+  alerts.py, releases.py, metrics.py, cli.py
+config/               series catalog, alert rules, test questions
+deploy/launchd/       scheduled-job templates
+docs/                 runbooks, research status, signal cards
+tests/                281 automated tests, including the look-ahead leakage suite
+data/                 data, reports and logs (created locally, never committed)
+PRD.md                full product and technical specification
+```
+
+---
+
+## 13. Quality and testing
+
+- **Automated tests:** 281 tests run on every change in CI (Python 3.12 and 3.13), along with
+  linting, formatting and type checks. The look-ahead leakage suite is part of the run and
+  blocks merges.
+- **Assistant evaluation:** `ramon eval run` asks the 172 test questions and compares the
+  score with a saved baseline; a drop of more than 3 points counts as a regression.
+- **Run the checks locally:**
+
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
 ```
+
+---
+
+## 14. Project status and roadmap
+
+The project is built in phases defined in [PRD.md](PRD.md#15-delivery-plan--acceptance-criteria).
+
+| Phase | Scope | Status |
+|---|---|---|
+| P0 Foundations | Point-in-time store, connectors, data contracts, snapshots | Done |
+| P1 Market data | Company prices and fundamentals, sector history | **Waiting on a paid data vendor** |
+| P2 Economy engine | Growth/inflation reading, regimes, recession risk, nowcast | Done (GDPNow used for current growth) |
+| P3 Signals and backtester | Signal library, statistical gates, signal cards | Done; 0 of 84 pass every gate |
+| P4 Views and portfolio | Combined views, ranges, model portfolio, champion/challenger | Done; holdout shows no reliable skill |
+| P5 Global | Countries, currencies, government bonds | Done for these three; credit and commodities not started |
+| P6 AI assistant | Tools, chat, number checker, weekly note, evals, central-bank text | Done; transcripts and news not started |
+| P7 Product | Web app, executive briefing, alerts, scenarios, monitoring | Done (local web app) |
+| P8 Live paper track | Monthly frozen views scored over 12 months | Running: first views frozen in October 2026 |
+
+**Next steps:** choose a market-data vendor (P1); add credit, commodities and emerging
+markets; let the live track accumulate a year of evidence before relying on the market
+leans; optional hosted deployment with sign-in.
+
+---
+
+## 15. Further documentation
+
+- [PRD.md](PRD.md): full product and technical specification
+- [docs/runbooks.md](docs/runbooks.md): operating guide (jobs, alerts, recovery, API)
+- [docs/phase3_status.md](docs/phase3_status.md): signal research results
+- `docs/signals/`: one research card per signal
+- The **How it works** page in the app: the plain-language version of this document
+
+> **Name:** Ramon was previously called Atlas. The Python package is still `atlas` and
+> settings keep the `ATLAS_` prefix, so existing jobs and `.env` files keep working.
+
+---
+
+*Ramon is a research tool. It does not provide investment advice, and past patterns do not
+guarantee future results.*
