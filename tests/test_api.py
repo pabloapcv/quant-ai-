@@ -148,3 +148,10 @@ def test_chat_executive_style_and_briefing(data: Path) -> None:
     assert client.post("/v1/chat", json={"question": "Hi", "style": "pirate"}).status_code == 422
     b = client.get("/v1/briefing").json()
     assert {"economy", "central_banks", "leans", "alerts", "trust_note"} <= set(b)
+
+
+def test_presets(data: Path) -> None:
+    app = create_app(Settings(data_dir=data, config_dir=REPO / "config"))
+    ps = TestClient(app).get("/v1/presets").json()["presets"]
+    assert {p["id"] for p in ps} >= {"oil_up", "rates_up", "panic"}
+    assert all(p["when"] and p["shocks"] for p in ps)

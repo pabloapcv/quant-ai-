@@ -169,6 +169,31 @@ def create_app(
                 briefing_cache.update(key=key, value=build_briefing(kit.get(), recent))
         return briefing_cache["value"]  # type: ignore[no-any-return]
 
+    @app.get("/v1/presets", dependencies=guarded)
+    def presets() -> dict[str, Any]:
+        """One-click what-if events used by the web app."""
+        from atlas.industry_lens import PRESETS
+
+        return {"presets": PRESETS}
+
+    lens_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+
+    @app.get("/v1/industry", dependencies=guarded)
+    def industry(asset: Annotated[str | None, Query(max_length=80)] = None) -> dict[str, Any]:
+        """'Your industry' lens for one of the 12 US sectors (list them by omitting ``asset``)."""
+        from atlas.industry_lens import build_lens, industries
+
+        k = kit.get()
+        if asset is None:
+            return {"industries": industries(k)}
+        key = (datetime.now(UTC).date(), latest_run_name(), asset)
+        if key not in lens_cache:
+            try:
+                lens_cache[key] = build_lens(k, asset)
+            except KeyError:
+                raise HTTPException(404, f"no US sector named {asset!r}") from None
+        return lens_cache[key]
+
     @app.get("/v1/central-banks", dependencies=guarded)
     def central_banks() -> dict[str, Any]:
         """The latest FOMC and ECB statements: decision, reading and what changed."""

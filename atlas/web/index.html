@@ -14,6 +14,7 @@
       <button role="tab" data-tab="brief" aria-selected="true">Briefing</button>
       <button role="tab" data-tab="ask">Ask Ramon</button>
       <button role="tab" data-tab="whatif">What if…?</button>
+      <button role="tab" data-tab="how">How it works</button>
       <span class="analyst-only sep" aria-hidden="true"></span>
       <button role="tab" data-tab="macro" class="analyst-only">Macro detail</button>
       <button role="tab" data-tab="views" class="analyst-only">Model views</button>
@@ -47,6 +48,39 @@
         <div id="presets" class="presets"></div>
       </div>
       <div id="whatif-out"></div>
+    </section>
+
+    <!-- How it works -->
+    <section id="tab-how" class="tab">
+      <div class="card prose">
+        <h3>Where Ramon's answers come from</h3>
+        <p>Ramon never answers from general knowledge. An engine computes everything from public data; the pages and the chat only explain what the engine computed.</p>
+        <h4>1. Public data, kept as it was first published</h4>
+        <p>US economic data from the St. Louis Fed (jobs, inflation, growth, interest rates, credit, market fear), industry returns from Kenneth French's academic data library, country stock markets from the OECD, exchange rates from the ECB, and Federal Reserve and ECB statements from their websites. Every figure is stored as first released, along with later revisions, so Ramon can tell what was actually known on any past date. New data is collected every weekday morning.</p>
+        <h4>2. Fixed models turn the data into readings</h4>
+        <ul>
+          <li><strong>The economy:</strong> dozens of indicators are combined into three scores (growth, inflation, borrowing conditions) and an "overall picture" such as soft growth with elevated inflation.</li>
+          <li><strong>Recession risk:</strong> a statistical model trained on past US recessions.</li>
+          <li><strong>Market leans:</strong> models that rank sectors and countries using signals such as recent price trends and valuation. They were only ever tested on data available at the time. On 2021–2025, data they never saw, they did not reliably beat a simple average, so treat them as context, not calls.</li>
+          <li><strong>What if…?:</strong> how each sector moved in the same month as past events of that kind, across about 20 years.</li>
+          <li><strong>Similar periods:</strong> past months whose economic readings look most like today's, and what happened over the next year.</li>
+          <li><strong>Central banks:</strong> an AI model reads each new statement once and records the decision and its tone; the rate decision is also taken from the text by fixed rules.</li>
+        </ul>
+        <h4>3. The Briefing uses no AI</h4>
+        <p>Fixed rules turn the numbers into sentences (for example, a recession probability under 15% is called "low"). It is instant, free and cannot invent anything.</p>
+        <h4>4. Ask Ramon: AI with a fact-check</h4>
+        <p>Claude, an AI model by Anthropic, picks which of Ramon's data tools it needs (you see them as small labels above each answer), then writes a reply from those results only. Before you see it, every number in the reply is checked against the data. Untraceable numbers must be fixed or removed; if any remain, the answer shows a ⚠ warning instead of "✓ Every number checked".</p>
+        <h4>5. Ongoing testing</h4>
+        <p>A set of 172 test questions is run regularly. Answers are scored on whether every number traces back to the data, whether the right tools were used, and whether an independent AI grader finds them correct, honest about uncertainty and clear. Executive-style answers also lose points for jargon.</p>
+        <h4>Glossary</h4>
+        <dl>
+          <dt>Hawkish / dovish</dt><dd>A central bank focused on fighting inflation (usually higher rates) / on supporting growth (usually lower rates).</dd>
+          <dt>Chance of beating peers</dt><dd>The models' estimated probability that a sector or market does better than the middle of its group over the next 3 months. 50% is a coin flip.</dd>
+          <dt>Financial conditions</dt><dd>How easy it is for companies and households to borrow, and how calm markets are.</dd>
+          <dt>Percentage point</dt><dd>A change in a rate: a move from 4.0% to 4.25% is 0.25 percentage point.</dd>
+        </dl>
+        <p class="small muted">Research based on public data and historical patterns, not investment advice.</p>
+      </div>
     </section>
 
     <!-- Ask -->

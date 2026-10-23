@@ -219,6 +219,9 @@
       parts.push(`<div class="card"><h3>What changed since ${esc(dayName(wc.since))}</h3>${wc.items.length
         ? `<ul class="changes">${wc.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
         : '<p class="muted">No significant changes in the past month.</p>'}</div>`);
+      parts.push(`<h2>Your industry</h2><div class="card" id="lens">
+        <div class="controls"><label>My business is closest to <select id="lens-asset"><option>Loading…</option></select></label></div>
+        <div id="lens-body" class="muted small">Pick the US sector closest to your business to see what Ramon's data says about it.</div></div>`);
       parts.push(`<h2>Central banks</h2><div class="grid2">${b.central_banks.map((c) => `<div class="card">
           <div class="eyebrow">${esc(c.bank)}${c.meeting_date ? ` · ${esc(dayName(c.meeting_date))}` : ''}</div>
           <p class="sub">${esc(c.headline)}</p>
@@ -233,7 +236,7 @@
           <div class="lean-cols"><div><div class="k pos">Slightly favored</div>${leanList(l.favored)}</div>
           <div><div class="k neg">Least favored</div>${leanList(l.least)}</div></div></div>`
         : `<div class="card"><div class="eyebrow">${esc(l.label)}</div><p class="muted">Not available.</p></div>`)).join('')}</div>
-        <div class="callout">${esc(b.trust_note)}</div>`);
+        <div class="callout">${esc(b.trust_note)} <a href="#" class="how-link">How Ramon works</a></div>`);
       parts.push(`<h2>Recent warnings</h2><div class="card">${b.alerts.length
         ? `<ul class="changes">${b.alerts.map((a) => `<li><span class="small muted">${esc(dayName(a.date))}</span> ${esc(a.message)}</li>`).join('')}</ul>`
         : '<p class="muted">Nothing notable in the last two weeks.</p>'}</div>`);
@@ -243,26 +246,59 @@
         'What would change your view on recession risk?',
       ].map((q) => `<button class="ex go">${esc(q)}</button>`).join('')}</div></div>`);
       el.innerHTML = parts.join('');
+      initLens();
+      $$('.how-link', el).forEach((a) => a.addEventListener('click', (ev) => { ev.preventDefault(); show('how'); }));
       $$('.go', el).forEach((btn) => btn.addEventListener('click', () => { show('ask'); ask(btn.textContent); }));
     } catch (err) { failBox(el, err); }
   }
 
   $('#print').addEventListener('click', () => window.print());
 
+  // ---------------------------------------------------------------- Your industry
+  async function initLens() {
+    const sel = $('#lens-asset');
+    try {
+      const { industries } = await api('/v1/industry');
+      sel.innerHTML = '<option value="">Choose a sector…</option>' + industries.map((a) => `<option>${esc(a)}</option>`).join('');
+      const saved = store.get('ramon_industry', '');
+      if (saved && industries.includes(saved)) { sel.value = saved; loadLens(saved); }
+      sel.addEventListener('change', () => { store.set('ramon_industry', sel.value); if (sel.value) loadLens(sel.value); });
+    } catch (e) { failBox($('#lens-body'), e); }
+  }
+  async function loadLens(asset) {
+    const body = $('#lens-body');
+    body.className = '';
+    body.innerHTML = `<span class="spinner"></span> Looking at ${esc(asset)} across history (about 15 seconds the first time)…`;
+    try {
+      const L = await api(`/v1/industry?asset=${encodeURIComponent(asset)}`);
+      const max = Math.max(...L.events.map((e) => Math.abs(e.vs_average)), 1e-9);
+      const bars = [...L.events].sort((a, b) => b.vs_average - a.vs_average).map((e) => {
+        const w = (Math.abs(e.vs_average) / max) * 50;
+        return `<div class="brow"><span class="name">${esc(e.label)}</span><div class="track"><div class="fill ${e.vs_average >= 0 ? 'up' : 'down'}" style="${e.vs_average >= 0 ? `left:50%;width:${w}%` : `left:${50 - w}%;width:${w}%`}"></div></div><span class="val ${sgn(e.vs_average)}">${spct(e.vs_average)}</span></div>`;
+      }).join('');
+      const drv = L.lean.drivers.map((d) => `${esc(d.what)} ${esc(d.effect)}`).join('; ');
+      body.innerHTML = `<ul class="changes">${L.summary.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+        ${drv ? `<p class="small muted">What drives the lean: ${drv}.</p>` : ''}
+        <div class="k small muted" style="margin-top:12px">How ${esc(asset)} moved vs the average sector in the same month, by event</div>
+        <div class="bars">${bars}</div>
+        <div class="callout">${esc(L.trust_note)}</div>
+        <div class="examples no-print"><button class="ex go2">What are the biggest risks for ${esc(asset)} right now?</button></div>`;
+      $$('.go2', body).forEach((btn) => btn.addEventListener('click', () => { show('ask'); ask(btn.textContent); }));
+    } catch (e) { failBox(body, e); }
+  }
+
   // ---------------------------------------------------------------- What if
-  const PRESETS = [
-    { label: 'Oil prices jump 30%', shocks: { oil: 0.3 } },
-    { label: 'Oil prices fall 30%', shocks: { oil: -0.3 } },
-    { label: 'Interest rates rise 1 point', shocks: { us10y: 1, us2y: 1 } },
-    { label: 'Interest rates fall 1 point', shocks: { us10y: -1, us2y: -1 } },
-    { label: 'Market panic', shocks: { vix: 15, credit_spread: 1 }, note: 'fear index up 15 points, corporate borrowing spreads up 1 point' },
-    { label: 'Dollar strengthens 10%', shocks: { usd: 0.1 } },
-    { label: 'Inflation fears rise', shocks: { breakeven10y: 0.5 }, note: 'expected inflation up 0.5 points' },
-  ];
+  let PRESETS = [];
   const UNIT_WORD = { ind12: 'the average US sector', ctry_usd: 'the average market', fx_g10: 'the average currency', rates_dev: 'the average bond market' };
   let lastPreset = null;
-  $('#presets').innerHTML = PRESETS.map((p, i) => `<button type="button" class="preset" data-i="${i}">${esc(p.label)}</button>`).join('');
-  $$('.preset').forEach((b) => b.addEventListener('click', () => runPreset(Number(b.dataset.i))));
+  async function loadPresets() {
+    if (PRESETS.length) return;
+    try {
+      PRESETS = (await api('/v1/presets')).presets;
+      $('#presets').innerHTML = PRESETS.map((p, i) => `<button type="button" class="preset" data-i="${i}">${esc(p.label)}</button>`).join('');
+      $$('.preset').forEach((b) => b.addEventListener('click', () => runPreset(Number(b.dataset.i))));
+    } catch (e) { failBox($('#presets'), e); }
+  }
   $('#whatif-universe').addEventListener('change', () => { if (lastPreset !== null) runPreset(lastPreset); });
   async function runPreset(i) {
     lastPreset = i;
@@ -443,7 +479,7 @@
   $('#token').value = store.get('ramon_token', '');
   $('#token').addEventListener('change', (e) => store.set('ramon_token', e.target.value));
 
-  const loaders = { brief: loadBrief, ask: loadUsage, macro: loadMacro, views: loadViews, analogs: loadAnalogs, scenario: fillUniverses, system: loadSystem };
+  const loaders = { brief: loadBrief, whatif: loadPresets, ask: loadUsage, macro: loadMacro, views: loadViews, analogs: loadAnalogs, scenario: fillUniverses, system: loadSystem };
   $('#analyst-mode').addEventListener('change', (e) => setAnalyst(e.target.checked));
   setAnalyst(store.get('ramon_analyst', '') === '1');
   show(store.get('ramon_tab', 'brief'));
