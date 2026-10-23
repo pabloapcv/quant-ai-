@@ -219,9 +219,10 @@
       parts.push(`<div class="card"><h3>What changed since ${esc(dayName(wc.since))}</h3>${wc.items.length
         ? `<ul class="changes">${wc.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
         : '<p class="muted">No significant changes in the past month.</p>'}</div>`);
-      parts.push(`<h2>Your industry</h2><div class="card" id="lens">
-        <div class="controls"><label>My business is closest to <select id="lens-asset"><option>Loading…</option></select></label></div>
-        <div id="lens-body" class="muted small">Pick the US sector closest to your business to see what Ramon's data says about it.</div></div>`);
+      parts.push(`<h2>Your business</h2><div class="card" id="lens">
+        <div class="seg no-print" id="lens-markets" role="tablist"></div>
+        <div class="controls"><label><span id="lens-prompt">My business is closest to</span> <select id="lens-asset"><option>Loading…</option></select></label></div>
+        <div id="lens-body" class="muted small">Pick what matters to your business to see what Ramon's data says about it.</div></div>`);
       parts.push(`<h2>Central banks</h2><div class="grid2">${b.central_banks.map((c) => `<div class="card">
           <div class="eyebrow">${esc(c.bank)}${c.meeting_date ? ` · ${esc(dayName(c.meeting_date))}` : ''}</div>
           <p class="sub">${esc(c.headline)}</p>
@@ -254,23 +255,49 @@
 
   $('#print').addEventListener('click', () => window.print());
 
-  // ---------------------------------------------------------------- Your industry
+  // ---------------------------------------------------------------- Your business
+  let lensMarkets = [];
   async function initLens() {
-    const sel = $('#lens-asset');
     try {
-      const { industries } = await api('/v1/industry');
-      sel.innerHTML = '<option value="">Choose a sector…</option>' + industries.map((a) => `<option>${esc(a)}</option>`).join('');
-      const saved = store.get('ramon_industry', '');
-      if (saved && industries.includes(saved)) { sel.value = saved; loadLens(saved); }
-      sel.addEventListener('change', () => { store.set('ramon_industry', sel.value); if (sel.value) loadLens(sel.value); });
+      lensMarkets = (await api('/v1/lens')).markets;
+      if (!store.get('ramon_lens_ind12', '') && store.get('ramon_industry', '')) store.set('ramon_lens_ind12', store.get('ramon_industry', ''));
+      $('#lens-markets').innerHTML = lensMarkets.map((m) => `<button type="button" data-m="${esc(m.id)}">${esc(m.label)}</button>`).join('');
+      $$('#lens-markets button').forEach((b) => b.addEventListener('click', () => pickMarket(b.dataset.m)));
+      $('#lens-asset').addEventListener('change', (e) => {
+        const m = store.get('ramon_lens_market', 'ind12');
+        store.set(`ramon_lens_${m}`, e.target.value);
+        if (e.target.value) loadLens(m, e.target.value);
+      });
+      pickMarket(store.get('ramon_lens_market', 'ind12'));
     } catch (e) { failBox($('#lens-body'), e); }
   }
-  async function loadLens(asset) {
+  async function pickMarket(id) {
+    const m = lensMarkets.find((x) => x.id === id) || lensMarkets[0];
+    store.set('ramon_lens_market', m.id);
+    $$('#lens-markets button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.m === m.id)));
+    $('#lens-prompt').textContent = m.prompt;
+    const sel = $('#lens-asset');
+    sel.innerHTML = '<option>Loading…</option>';
+    sel.disabled = true;
+    const body = $('#lens-body');
+    body.className = 'muted small';
+    body.innerHTML = `<span class="spinner"></span> Getting the list (if the server just started, this can take up to a minute)…`;
+    try {
+      const { assets } = await api(`/v1/lens?market=${encodeURIComponent(m.id)}`);
+      if (store.get('ramon_lens_market', 'ind12') !== m.id) return; // switched again meanwhile
+      sel.innerHTML = `<option value="">Choose a ${esc(m.noun)}…</option>` + assets.map((a) => `<option>${esc(a)}</option>`).join('');
+      sel.disabled = false;
+      const saved = store.get(`ramon_lens_${m.id}`, '');
+      if (saved && assets.includes(saved)) { sel.value = saved; loadLens(m.id, saved); }
+      else body.textContent = `Pick a ${m.noun} to see what Ramon's data says about it.`;
+    } catch (e) { failBox(body, e); }
+  }
+  async function loadLens(market, asset) {
     const body = $('#lens-body');
     body.className = '';
-    body.innerHTML = `<span class="spinner"></span> Looking at ${esc(asset)} across history (about 15 seconds the first time)…`;
+    body.innerHTML = `<span class="spinner"></span> Looking at ${esc(asset)}…`;
     try {
-      const L = await api(`/v1/industry?asset=${encodeURIComponent(asset)}`);
+      const L = await api(`/v1/lens?market=${encodeURIComponent(market)}&asset=${encodeURIComponent(asset)}`);
       const max = Math.max(...L.events.map((e) => Math.abs(e.vs_average)), 1e-9);
       const bars = [...L.events].sort((a, b) => b.vs_average - a.vs_average).map((e) => {
         const w = (Math.abs(e.vs_average) / max) * 50;
@@ -279,7 +306,7 @@
       const drv = L.lean.drivers.map((d) => `${esc(d.what)} ${esc(d.effect)}`).join('; ');
       body.innerHTML = `<ul class="changes">${L.summary.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
         ${drv ? `<p class="small muted">What drives the lean: ${drv}.</p>` : ''}
-        <div class="k small muted" style="margin-top:12px">How ${esc(asset)} moved vs the average sector in the same month, by event</div>
+        <div class="k small muted" style="margin-top:12px">How ${esc(asset)} moved vs ${esc(L.avg)} in the same month, by event</div>
         <div class="bars">${bars}</div>
         <div class="callout">${esc(L.trust_note)}</div>
         <div class="examples no-print"><button class="ex go2">What are the biggest risks for ${esc(asset)} right now?</button></div>`;

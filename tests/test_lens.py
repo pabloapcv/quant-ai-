@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from atlas.industry_lens import PRESETS, build_lens
+from atlas.lens import PRESETS, assets, build_lens, market_facts
 
 
 class Kit:
@@ -50,7 +50,9 @@ class Kit:
 
 
 def test_lens_sentences() -> None:
-    b = build_lens(Kit(), "Retail")
+    facts = market_facts(Kit(), "ind12")
+    assert assets(facts) == ["Energy", "Retail", "Tech"]
+    b = build_lens(facts, "Retail")
     assert b["lean"]["rank"] == 2
     assert b["lean"]["drivers"][0]["effect"] == "weighs on it"
     assert len(b["events"]) == len(PRESETS)
@@ -66,4 +68,13 @@ def test_lens_sentences() -> None:
         "next year (+3.2%, ahead in 70% of them).",
     ]
     with pytest.raises(KeyError):
-        build_lens(Kit(), "Nope")
+        build_lens(facts, "Nope")
+    with pytest.raises(KeyError):
+        market_facts(Kit(), "nope")
+
+
+def test_currency_wording() -> None:
+    b = build_lens(market_facts(Kit(), "fx_g10"), "Retail")
+    assert "chance of beating the other major currencies" in b["summary"][0]
+    assert "vs the average currency" in b["summary"][1]
+    assert "currency rankings" in b["trust_note"]

@@ -133,3 +133,6 @@ a { color: var(--accent); }
 .prose dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
 .prose dt { font-weight: 600; } .prose dd { margin: 0; color: var(--muted); }
 @media (max-width: 600px) { .prose dl { grid-template-columns: 1fr; } .prose dd { margin-bottom: 8px; } }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px; margin-bottom: 12px; }
+.seg button { background: none; border: 0; border-radius: 999px; padding: 5px 12px; color: var(--muted); }
+.seg button[aria-selected="true"] { background: var(--chip); color: var(--fg); font-weight: 600; }

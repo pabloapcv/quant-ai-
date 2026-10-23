@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import logging
 import queue
 import threading
 import time
@@ -172,27 +173,44 @@ def create_app(
     @app.get("/v1/presets", dependencies=guarded)
     def presets() -> dict[str, Any]:
         """One-click what-if events used by the web app."""
-        from atlas.industry_lens import PRESETS
+        from atlas.lens import PRESETS
 
         return {"presets": PRESETS}
 
-    lens_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+    facts_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+    facts_lock = threading.Lock()
 
-    @app.get("/v1/industry", dependencies=guarded)
-    def industry(asset: Annotated[str | None, Query(max_length=80)] = None) -> dict[str, Any]:
-        """'Your industry' lens for one of the 12 US sectors (list them by omitting ``asset``)."""
-        from atlas.industry_lens import build_lens, industries
+    def market_facts(market: str) -> dict[str, Any]:
+        """Shared per-market work for the lenses (~15 s), once per day and pipeline run."""
+        from atlas.lens import market_facts as build
 
-        k = kit.get()
+        key = (datetime.now(UTC).date(), latest_run_name(), market)
+        with facts_lock:
+            if key not in facts_cache:
+                if len(facts_cache) > 12:  # old days' entries
+                    facts_cache.clear()
+                facts_cache[key] = build(kit.get(), market)
+            return facts_cache[key]
+
+    @app.get("/v1/lens", dependencies=guarded)
+    def lens(
+        market: Annotated[str | None, Query(max_length=20)] = None,
+        asset: Annotated[str | None, Query(max_length=80)] = None,
+    ) -> dict[str, Any]:
+        """'Your business' lens. No market: list markets; no asset: list the market's assets."""
+        from atlas.lens import MARKETS, assets, build_lens
+
+        if market is None:
+            return {"markets": [{"id": k, **v} for k, v in MARKETS.items()]}
+        if market not in MARKETS:
+            raise HTTPException(404, f"no market {market!r}; one of {', '.join(MARKETS)}")
+        facts = market_facts(market)
         if asset is None:
-            return {"industries": industries(k)}
-        key = (datetime.now(UTC).date(), latest_run_name(), asset)
-        if key not in lens_cache:
-            try:
-                lens_cache[key] = build_lens(k, asset)
-            except KeyError:
-                raise HTTPException(404, f"no US sector named {asset!r}") from None
-        return lens_cache[key]
+            return {"market": market, "assets": assets(facts)}
+        try:
+            return build_lens(facts, asset)
+        except KeyError:
+            raise HTTPException(404, f"no {MARKETS[market]['noun']} named {asset!r}") from None
 
     @app.get("/v1/central-banks", dependencies=guarded)
     def central_banks() -> dict[str, Any]:
@@ -379,5 +397,22 @@ def create_app(
         return {"today": t, "daily_budget": settings.llm_daily_token_budget}
 
     if warm_briefing:
-        threading.Thread(target=briefing, daemon=True).start()
+
+        def warm() -> None:
+            """Keep the briefing and every lens market built, so no visitor waits for them.
+
+            Cheap when nothing changed (cache hits); rebuilds after a new day or pipeline run.
+            """
+            from atlas.lens import MARKETS
+
+            while True:
+                try:
+                    briefing()
+                    for m in MARKETS:
+                        market_facts(m)
+                except Exception as exc:  # missing data: the request path reports it too
+                    logging.getLogger("atlas.api").warning("warm-up failed: %s", exc)
+                time.sleep(1800)
+
+        threading.Thread(target=warm, daemon=True).start()
     return app

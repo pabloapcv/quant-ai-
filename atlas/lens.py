@@ -1,15 +1,40 @@
-"""'Your industry' lens: what the engine says about one US sector, in plain words.
+"""'Your business' lens: what the engine says about one sector, country or currency, in plain
+words.
 
-Deterministic, like the briefing: the model lean for the sector, how it has historically moved
-in each what-if event, and what followed in the past periods most like today. No language
-model; every sentence carries the numbers it rests on.
+Deterministic, like the briefing: the model lean and what drives it, how the asset moved in
+each what-if event, and what followed in the past periods most like today. No language model;
+every sentence carries the numbers it rests on. The per-market work (views, every what-if run,
+analogs) is shared by all assets of a market, so it is computed once (``market_facts``) and
+each lens is then cheap (``build_lens``).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-UNIVERSE = "ind12"
+MARKETS: dict[str, dict[str, str]] = {
+    "ind12": {
+        "label": "US sector",
+        "noun": "sector",
+        "peers": "the other sectors",
+        "avg": "the average sector",
+        "prompt": "My business is closest to",
+    },
+    "ctry_usd": {
+        "label": "Stock market abroad",
+        "noun": "market",
+        "peers": "the other markets",
+        "avg": "the average market",
+        "prompt": "A country we sell to or invest in",
+    },
+    "fx_g10": {
+        "label": "Currency",
+        "noun": "currency",
+        "peers": "the other major currencies",
+        "avg": "the average currency",
+        "prompt": "A currency we are exposed to (against the US dollar)",
+    },
+}
 
 # One-click what-if events (shared with the web app via /v1/presets). Units follow the scenario
 # engine: yields and spreads in percentage points, dollar and oil as fractions, VIX in points.
@@ -62,11 +87,17 @@ PRESETS: list[dict[str, Any]] = [
 
 SIGNAL_WORDS = {
     "mom_12_1": "its price trend over the past year",
+    "mom_6_1": "its price trend over the past six months",
+    "mom_3_0": "its move over the past three months",
     "resmom_ff3_36": "its own trend, after removing broad market moves",
     "value_log_bm": "its valuation (how cheap it is relative to its book value)",
     "low_vol_36": "how steady its returns have been",
     "ltr_60_12": "its five-year performance (long runs tend to partly reverse)",
     "reversal_1m": "last month's move (short moves tend to partly reverse)",
+    "yield_fall_12": "the fall in its bond yields over the past year",
+    "cli_chg_6": "the six-month change in its economy's leading indicator",
+    "cli_level": "the level of its economy's leading indicator",
+    "carry": "its interest-rate advantage over other currencies",
 }
 
 
@@ -82,12 +113,29 @@ def _lean_words(p: float) -> str:
     return "lean clearly against"
 
 
-def industries(kit: Any) -> list[str]:
-    return [v["asset"] for v in kit.get_views(UNIVERSE, 3)["views"]]
+def market_facts(kit: Any, market: str) -> dict[str, Any]:
+    """Everything the lenses of one market need, computed once."""
+    if market not in MARKETS:
+        raise KeyError(market)
+    scenarios = {}
+    for p in PRESETS:
+        shocks = [{"factor": f, "value": x} for f, x in p["shocks"].items()]
+        scenarios[p["id"]] = kit.run_scenario(market, shocks, False)
+    return {
+        "market": market,
+        "views": kit.get_views(market, 3),
+        "scenarios": scenarios,
+        "analogs": kit.find_analogs(market, "", 10),
+    }
 
 
-def build_lens(kit: Any, asset: str) -> dict[str, Any]:
-    views = kit.get_views(UNIVERSE, 3)
+def assets(facts: dict[str, Any]) -> list[str]:
+    return [v["asset"] for v in facts["views"]["views"]]
+
+
+def build_lens(facts: dict[str, Any], asset: str) -> dict[str, Any]:
+    m = MARKETS[facts["market"]]
+    views = facts["views"]
     ranked = sorted(views["views"], key=lambda v: -v["score"])
     names = [v["asset"] for v in ranked]
     if asset not in names:
@@ -115,8 +163,7 @@ def build_lens(kit: Any, asset: str) -> dict[str, Any]:
 
     events = []
     for p in PRESETS:
-        shocks = [{"factor": f, "value": x} for f, x in p["shocks"].items()]
-        r = kit.run_scenario(UNIVERSE, shocks, False)
+        r = facts["scenarios"].get(p["id"]) or {"error": "not run"}
         if "error" in r:
             continue
         rows = sorted(r["excess_vs_average"], key=lambda x: -x["expected"])
@@ -141,7 +188,7 @@ def build_lens(kit: Any, asset: str) -> dict[str, Any]:
     hurts = [e for e in by_effect[::-1] if e["vs_average"] < -0.002][:2]
 
     history = None
-    an = kit.find_analogs(UNIVERSE, "", 10)
+    an = facts["analogs"]
     if "error" not in an:
         fwd = next((x for x in an["forward_excess_by_asset"]["12m"] if x["asset"] == asset), None)
         if fwd:
@@ -157,15 +204,13 @@ def build_lens(kit: Any, asset: str) -> dict[str, Any]:
 
     sentences = [
         f"The models {lean['words']} {asset} for the next 3 months "
-        f"({lean['chance_beat_peers']:.0%} chance of beating the other sectors; "
+        f"({lean['chance_beat_peers']:.0%} chance of beating {m['peers']}; "
         f"{lean['rank']} of {lean['of']})."
     ]
     if helps:
         sentences.append(
             "Historically it held up best when "
-            + " and ".join(
-                f"{e['when']} ({pct(e['vs_average'])} vs the average sector)" for e in helps
-            )
+            + " and ".join(f"{e['when']} ({pct(e['vs_average'])} vs {m['avg']})" for e in helps)
             + "."
         )
     if hurts:
@@ -177,12 +222,15 @@ def build_lens(kit: Any, asset: str) -> dict[str, Any]:
     if history:
         way = "beat" if history["median_vs_average"] > 0 else "lagged"
         sentences.append(
-            f"In the {history['periods']} past periods most like today, it typically {way} the "
-            f"average sector over the next year ({pct(history['median_vs_average'])}, ahead in "
+            f"In the {history['periods']} past periods most like today, it typically {way} "
+            f"{m['avg']} over the next year ({pct(history['median_vs_average'])}, ahead in "
             f"{history['share_beat_average']:.0%} of them)."
         )
     return {
         "asset": asset,
+        "market": facts["market"],
+        "noun": m["noun"],
+        "avg": m["avg"],
         "summary": sentences,
         "lean": lean,
         "events": events,
@@ -190,8 +238,8 @@ def build_lens(kit: Any, asset: str) -> dict[str, Any]:
         "hurts": [e["id"] for e in hurts],
         "history": history,
         "trust_note": (
-            "The lean is weak evidence: over 2021-2025 the sector rankings did not reliably beat "
-            "a simple average. The event and history figures describe how this sector moved in "
-            "the past, not a forecast."
+            f"The lean is weak evidence: over 2021-2025 these {m['noun']} rankings did not "
+            f"reliably beat a simple average. The event and history figures describe how this "
+            f"{m['noun']} moved in the past, not a forecast."
         ),
     }
