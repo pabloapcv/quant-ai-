@@ -8,6 +8,13 @@ from dataclasses import dataclass
 import polars as pl
 
 from atlas.pit.store import PITStore
+from atlas.signals.commodity import (
+    COMMODITY_COMPONENTS,
+    COMMODITY_FAMILIES,
+    COMMODITY_NAMES,
+    COMMODITY_SIGNALS,
+    commodity_panel,
+)
 from atlas.signals.country import (
     COUNTRY_FAMILIES,
     COUNTRY_NAMES,
@@ -141,6 +148,17 @@ UNIVERSES: dict[str, Universe] = {
         "rates",
         "RATES",
         RATES_COMPONENTS,
+    ),
+    "cmdty": Universe(
+        "cmdty",
+        "17 commodities: energy, metals and crops, USD spot price changes (IMF)",
+        commodity_panel,
+        COMMODITY_SIGNALS,
+        COMMODITY_FAMILIES,
+        COMMODITY_NAMES,
+        "commodity",
+        "CMDTY",
+        COMMODITY_COMPONENTS,
     ),
 }
 

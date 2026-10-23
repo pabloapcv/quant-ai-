@@ -43,6 +43,7 @@
             <option value="ctry_usd">Stock markets around the world (in dollars)</option>
             <option value="fx_g10">Major currencies vs the dollar</option>
             <option value="rates_dev">Government bonds</option>
+            <option value="cmdty">Commodities (energy, metals, crops)</option>
           </select></label>
         </div>
         <div id="presets" class="presets"></div>
@@ -56,12 +57,12 @@
         <h3>Where Ramon's answers come from</h3>
         <p>Ramon never answers from general knowledge. An engine computes everything from public data; the pages and the chat only explain what the engine computed.</p>
         <h4>1. Public data, kept as it was first published</h4>
-        <p>US economic data from the St. Louis Fed (jobs, inflation, growth, interest rates, credit, market fear), industry returns from Kenneth French's academic data library, country stock markets from the OECD, exchange rates from the ECB, and Federal Reserve and ECB statements from their websites. Every figure is stored as first released, along with later revisions, so Ramon can tell what was actually known on any past date. New data is collected every weekday morning.</p>
+        <p>US economic data from the St. Louis Fed (jobs, inflation, growth, interest rates, credit, market fear), industry returns from Kenneth French's academic data library, country stock markets from the OECD, exchange rates from the ECB, commodity prices from the IMF, and Federal Reserve and ECB statements from their websites. Every figure is stored as first released, along with later revisions, so Ramon can tell what was actually known on any past date. New data is collected every weekday morning.</p>
         <h4>2. Fixed models turn the data into readings</h4>
         <ul>
           <li><strong>The economy:</strong> dozens of indicators are combined into three scores (growth, inflation, borrowing conditions) and an "overall picture" such as soft growth with elevated inflation.</li>
           <li><strong>Recession risk:</strong> a statistical model trained on past US recessions.</li>
-          <li><strong>Market leans:</strong> models that rank sectors and countries using signals such as recent price trends and valuation. They were only ever tested on data available at the time. On 2021–2025, data they never saw, they did not reliably beat a simple average, so treat them as context, not calls.</li>
+          <li><strong>Market leans:</strong> models that rank sectors and countries using signals such as recent price trends and valuation. They were only ever tested on data available at the time. On 2021–2025, data they never saw, the sector, country, currency and bond rankings did not reliably beat a simple average, so treat them as context, not calls. The commodity rankings did better (right in 60% of months) but not yet conclusively.</li>
           <li><strong>What if…?:</strong> how each sector moved in the same month as past events of that kind, across about 20 years.</li>
           <li><strong>Similar periods:</strong> past months whose economic readings look most like today's, and what happened over the next year.</li>
           <li><strong>Central banks:</strong> an AI model reads each new statement once and records the decision and its tone; the rate decision is also taken from the text by fixed rules.</li>

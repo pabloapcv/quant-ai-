@@ -78,3 +78,28 @@ def test_currency_wording() -> None:
     assert "chance of beating the other major currencies" in b["summary"][0]
     assert "vs the average currency" in b["summary"][1]
     assert "currency rankings" in b["trust_note"]
+
+
+class CommodityKit(Kit):
+    def get_series(self, sid: str, n: int, as_of: str) -> dict[str, Any]:
+        vals = [100.0] * 9 + [110.0] * 3 + [121.0]  # 13 months: +10% then +10%
+        return {
+            "observations": [
+                {"period": f"{2025 + (m + 8) // 12}-{(m + 8) % 12 + 1:02d}-01", "value": v}
+                for m, v in zip(range(13), vals, strict=True)  # 2025-09 .. 2026-09
+            ]
+        }
+
+
+def test_commodity_price_sentence() -> None:
+    from atlas.signals.commodity import COMMODITY_NAMES
+
+    facts = market_facts(CommodityKit(), "cmdty")
+    assert set(facts["prices"]) == set(COMMODITY_NAMES.values())
+    facts["prices"]["Retail"] = facts["prices"]["Copper"]  # the stub kit's asset names
+    b = build_lens(facts, "Retail")
+    assert b["summary"][0] == (
+        "Retail prices are up 21% over the past year and up 10% over the past three months "
+        "(monthly average, 2026-09)."
+    )
+    assert "early evidence" in b["trust_note"]

@@ -17,9 +17,9 @@ being allowed to make numbers up.
 |---|---|
 | **For** | Executives who want the "so what" (Briefing, Ask Ramon, What if), and analysts who want the detail behind it (Analyst view) |
 | **Runs on** | One computer (macOS today), opened in a web browser at `http://127.0.0.1:8710/` |
-| **Data** | Free public sources: St. Louis Fed, Ken French data library, OECD, ECB, BIS, IMF, Federal Reserve and ECB websites |
+| **Data** | Free public sources: St. Louis Fed, Ken French data library, OECD, ECB, BIS, IMF (including world commodity prices), Federal Reserve and ECB websites |
 | **AI** | Claude by Anthropic, for chat answers, the weekly note and reading central-bank statements |
-| **Status** | Working research system. Key limitation: the market rankings have **not** shown reliable skill on 2021-2025 data (see [Limitations](#7-limitations-read-this)) |
+| **Status** | Working research system. Key limitation: apart from early promise for commodities, the market rankings have **not** shown reliable skill on 2021-2025 data (see [Track record](#6-track-record)) |
 
 ## Contents
 
@@ -50,8 +50,8 @@ Start it with `ramon api serve` and open **http://127.0.0.1:8710/**.
 | Page | What it shows | Uses AI? |
 |---|---|---|
 | **Briefing** (home) | The economy in one sentence; overall picture, recession risk, current growth and borrowing conditions with traffic lights; what changed in the past month; what the Fed and ECB decided and their tone; where the models lean; recent warnings. Print or save it as a PDF. | No. Fixed rules turn numbers into sentences. |
-| **Your business** (on the Briefing) | Pick a US sector, a stock market abroad, or a currency you are exposed to. See the model lean and what drives it, how it moved in each what-if event, and what followed in the past periods most like today. | No |
-| **What if…?** | One-click events (oil up or down 30%, interest rates up or down 1 point, market panic, a stronger dollar, rising inflation fears) with a winners-and-losers chart for sectors, world stock markets, currencies or government bonds. | No |
+| **Your business** (on the Briefing) | Pick a US sector, a stock market abroad, a currency you are exposed to, or a commodity you buy or sell (energy, metals, crops). See the model lean and what drives it, how it moved in each what-if event, and what followed in the past periods most like today. | No |
+| **What if…?** | One-click events (oil up or down 30%, interest rates up or down 1 point, market panic, a stronger dollar, rising inflation fears) with a winners-and-losers chart for sectors, world stock markets, currencies, government bonds or commodities. | No |
 | **Ask Ramon** | Chat. Ask in your own words; answers come in plain language, with the data steps shown and a "✓ Every number checked" line. | Yes (Claude) |
 | **How it works** | A plain-language explanation of the data, models and checks, plus a glossary. | No |
 | **Analyst view** (checkbox) | Adds the technical pages: macro detail, model views with ranges, a custom scenario builder, historical analogs, and system status with the track record. Chat answers switch to analyst style. | Partly |
@@ -118,9 +118,10 @@ All sources are free and public. Only FRED needs a (free) key.
 | **OECD** | Leading indicators, share prices and 10-year yields for 14 countries | No |
 | **ECB** | Euro exchange rates and yield curve; monetary-policy statements and press-conference transcripts | No |
 | **BIS, IMF** | Real effective exchange rates, consumer prices | No |
+| **IMF commodity prices (PCPS)** | Monthly world benchmark prices for 17 commodities since 1992: oil, gas, coal, copper, aluminum, nickel, zinc, iron ore, gold, silver, wheat, corn, soybeans, sugar, coffee, cotton | No |
 | **Federal Reserve website** | FOMC statements and minutes | No |
 
-The catalog of 269 series is in `config/series.yaml`. Raw downloads are archived under
+The catalog of 286 series is in `config/series.yaml`. Raw downloads are archived under
 `data/raw/` so any figure can be traced back to its source.
 
 **Not included yet:** individual company prices and fundamentals (needs a paid vendor, see
@@ -135,7 +136,7 @@ The catalog of 269 series is in `config/series.yaml`. Raw downloads are archived
 | **Economy (growth, inflation, financial conditions)** | Dozens of indicators combined into three scores relative to trend, and the probability of each of four "economic weather" types (healthy growth; strong growth with rising inflation; soft growth with elevated inflation; slowing growth with easing inflation). A second statistical model gives an independent opinion. |
 | **Recession risk (12 months)** | A statistical model trained on past US recessions as dated by the NBER, using only data available at each point in time. |
 | **Current growth** | The Atlanta Fed's GDPNow estimate. Ramon's own free-data nowcast did not beat it, so GDPNow is shown instead. |
-| **Market leans** | For US industries, country stock markets, major currencies and government bonds: a combination of well-studied signals (price trends, valuation, steadiness, interest-rate advantage, leading indicators), giving each asset's chance of beating its peers over 1 and 3 months, with a likely range. |
+| **Market leans** | For US industries, country stock markets, major currencies, government bonds and commodities: a combination of well-studied signals (price trends, valuation, steadiness, interest-rate advantage, leading indicators), giving each asset's chance of beating its peers over 1 and 3 months, with a likely range. |
 | **What if…?** | How each asset moved in the same month as past moves in oil, interest rates, the dollar, market fear and inflation expectations, estimated on about 20 years of monthly history. |
 | **Similar periods** | The past months whose economic readings most resemble today's, and how each asset did over the following year. |
 | **Central-bank tone** | Claude reads each new Fed and ECB statement once and records the decision and tone (from strongly dovish to strongly hawkish). The rate decision is also extracted by fixed rules as a cross-check. |
@@ -164,12 +165,13 @@ specification is in [PRD.md](PRD.md).
 ## 6. Track record
 
 The honest summary is that **the economic readings describe published data well, but the
-market rankings have not yet shown reliable predictive skill on data they never saw.**
+market rankings have not yet shown reliable predictive skill on data they never saw**, with
+commodities the one early exception.
 
 | Test | Result |
 |---|---|
 | Recession model (point-in-time backtest) | Separates the run-up to recessions from other periods well (AUC 0.90, where 0.5 is a coin flip and 1.0 is perfect) |
-| Market rankings, 2021-2025 holdout (3-month) | Correlation with actual outcomes between -0.065 and +0.044 across the six markets covered; none statistically significant. In plain terms: no better than a simple average. |
+| Market rankings, 2021-2025 holdout (3-month) | Sectors, countries, currencies and bonds: correlation with actual outcomes between -0.065 and +0.044, none statistically significant (no better than a simple average). Commodities: +0.091, right in 60% of months, t-statistic 1.73: promising but short of the usual significance bar. |
 | Signal promotion gates | 0 of 84 signal-market pairs pass all six gates; 14 pass five of six |
 | Assistant answers | 97.3 / 100 on the analyst question set; 96.2 / 100 on the executive questions, with every number traced to the data |
 
@@ -186,9 +188,11 @@ automatically. See `docs/phase3_status.md` for the full research status.
   a prompt for discussion.
 - **"What if" is history, not a forecast.** It shows how assets usually moved together in
   the same month. Real events rarely repeat history exactly.
-- **Coverage.** US industries, 14 country stock markets, 8 major currencies and 9
-  government bond markets. No individual companies, credit products, commodities or
+- **Coverage.** US industries, 14 country stock markets, 8 major currencies, 9
+  government bond markets and 17 commodities. No individual companies, credit products or
   emerging-market currencies yet.
+- **Commodity prices are monthly averages** of world benchmark spot prices in US dollars,
+  not futures returns or the price any one buyer pays.
 - **Monthly data.** Most economic data is monthly and published with a delay. The Briefing
   says which month it reflects.
 - **Single machine.** Ramon runs on one computer and serves the web app on that computer
@@ -318,7 +322,7 @@ All endpoints are read-only except chat. Interactive documentation is at `/docs`
 | Endpoint | Returns |
 |---|---|
 | `GET /v1/briefing` | The plain-language Briefing |
-| `GET /v1/lens?market=&asset=` | Your business view for a sector (`ind12`), stock market (`ctry_usd`) or currency (`fx_g10`) |
+| `GET /v1/lens?market=&asset=` | Your business view for a sector (`ind12`), stock market (`ctry_usd`), currency (`fx_g10`) or commodity (`cmdty`) |
 | `GET /v1/presets` | The one-click what-if events |
 | `POST /v1/scenario` | A what-if run for any combination of shocks |
 | `POST /v1/chat` | Ask Ramon (streamed: data steps, then the checked answer) |
@@ -337,7 +341,7 @@ atlas/                Python package (the engine)
   quality/            data contracts, staleness and drift checks
   features/           economic indicators as known at each date
   models/             economy reading, recession risk, nowcast, return models, scenarios, risk
-  signals/            market signals per universe (industries, countries, FX, bonds)
+  signals/            market signals per universe (industries, countries, FX, bonds, commodities)
   backtest/           backtesting, statistical gates, the locked holdout
   views/              publishing, freezing, scoring and reproducing views
   text/               Fed and ECB documents, search, tone readings
@@ -350,7 +354,7 @@ atlas/                Python package (the engine)
 config/               series catalog, alert rules, test questions
 deploy/launchd/       scheduled-job templates
 docs/                 runbooks, research status, signal cards
-tests/                281 automated tests, including the look-ahead leakage suite
+tests/                285 automated tests, including the look-ahead leakage suite
 data/                 data, reports and logs (created locally, never committed)
 PRD.md                full product and technical specification
 ```
@@ -359,7 +363,7 @@ PRD.md                full product and technical specification
 
 ## 13. Quality and testing
 
-- **Automated tests:** 281 tests run on every change in CI (Python 3.12 and 3.13), along with
+- **Automated tests:** 285 tests run on every change in CI (Python 3.12 and 3.13), along with
   linting, formatting and type checks. The look-ahead leakage suite is part of the run and
   blocks merges.
 - **Assistant evaluation:** `ramon eval run` asks the 172 test questions and compares the
@@ -383,13 +387,12 @@ The project is built in phases defined in [PRD.md](PRD.md#15-delivery-plan--acce
 | P2 Economy engine | Growth/inflation reading, regimes, recession risk, nowcast | Done (GDPNow used for current growth) |
 | P3 Signals and backtester | Signal library, statistical gates, signal cards | Done; 0 of 84 pass every gate |
 | P4 Views and portfolio | Combined views, ranges, model portfolio, champion/challenger | Done; holdout shows no reliable skill |
-| P5 Global | Countries, currencies, government bonds | Done for these three; credit and commodities not started |
+| P5 Global | Countries, currencies, government bonds, commodities | Done for these four; credit not started |
 | P6 AI assistant | Tools, chat, number checker, weekly note, evals, central-bank text | Done; transcripts and news not started |
 | P7 Product | Web app, executive briefing, alerts, scenarios, monitoring | Done (local web app) |
 | P8 Live paper track | Monthly frozen views scored over 12 months | Running: first views frozen in October 2026 |
 
-**Next steps:** choose a market-data vendor (P1); add credit, commodities and emerging
-markets; let the live track accumulate a year of evidence before relying on the market
+**Next steps:** choose a market-data vendor (P1); add credit and emerging markets; let the live track accumulate a year of evidence before relying on the market
 leans; optional hosted deployment with sign-in.
 
 ---

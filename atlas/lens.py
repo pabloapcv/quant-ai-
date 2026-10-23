@@ -34,6 +34,17 @@ MARKETS: dict[str, dict[str, str]] = {
         "avg": "the average currency",
         "prompt": "A currency we are exposed to (against the US dollar)",
     },
+    "cmdty": {
+        "label": "Commodity",
+        "noun": "commodity",
+        "peers": "the other commodities",
+        "avg": "the average commodity",
+        "prompt": "An input cost or product price we depend on",
+        "trust": "The lean is early evidence: over 2021-2025, data the models never saw, the "
+        "commodity rankings were right in 60% of months, but not by enough to be conclusive. "
+        "Prices are monthly averages of world benchmark prices in US dollars, not what any one "
+        "buyer pays. The event and history figures describe the past, not a forecast.",
+    },
 }
 
 # One-click what-if events (shared with the web app via /v1/presets). Units follow the scenario
@@ -121,8 +132,22 @@ def market_facts(kit: Any, market: str) -> dict[str, Any]:
     for p in PRESETS:
         shocks = [{"factor": f, "value": x} for f, x in p["shocks"].items()]
         scenarios[p["id"]] = kit.run_scenario(market, shocks, False)
+    prices = {}
+    if market == "cmdty":
+        from atlas.signals.commodity import COMMODITY_NAMES, PREFIX
+
+        for cid, name in COMMODITY_NAMES.items():
+            obs = kit.get_series(PREFIX + cid, 13, "").get("observations") or []
+            if len(obs) >= 13:
+                last = obs[-1]
+                prices[name] = {
+                    "month": last["period"],
+                    "change_3m": last["value"] / obs[-4]["value"] - 1,
+                    "change_12m": last["value"] / obs[-13]["value"] - 1,
+                }
     return {
         "market": market,
+        "prices": prices,
         "views": kit.get_views(market, 3),
         "scenarios": scenarios,
         "analogs": kit.find_analogs(market, "", 10),
@@ -202,7 +227,19 @@ def build_lens(facts: dict[str, Any], asset: str) -> dict[str, Any]:
     def pct(x: float) -> str:
         return f"{x * 100:+.1f}%"
 
-    sentences = [
+    price = facts.get("prices", {}).get(asset)
+    sentences = []
+    if price:
+
+        def move(x: float) -> str:
+            return f"{'up' if x >= 0 else 'down'} {abs(x):.0%}"
+
+        sentences.append(
+            f"{asset} prices are {move(price['change_12m'])} over the past year and "
+            f"{move(price['change_3m'])} over the past three months (monthly average, "
+            f"{price['month'][:7]})."
+        )
+    sentences += [
         f"The models {lean['words']} {asset} for the next 3 months "
         f"({lean['chance_beat_peers']:.0%} chance of beating {m['peers']}; "
         f"{lean['rank']} of {lean['of']})."
@@ -237,7 +274,9 @@ def build_lens(facts: dict[str, Any], asset: str) -> dict[str, Any]:
         "helps": [e["id"] for e in helps],
         "hurts": [e["id"] for e in hurts],
         "history": history,
-        "trust_note": (
+        "price": price,
+        "trust_note": m.get("trust")
+        or (
             f"The lean is weak evidence: over 2021-2025 these {m['noun']} rankings did not "
             f"reliably beat a simple average. The event and history figures describe how this "
             f"{m['noun']} moved in the past, not a forecast."
