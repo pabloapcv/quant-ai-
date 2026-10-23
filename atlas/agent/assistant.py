@@ -68,7 +68,8 @@ means in practice (costs, demand, financing, currency exposure, risks to watch).
 - Use everyday words. Do not use jargon such as IC, t-stat, z-score, basis points, \
 quadrant, ensemble, walk-forward or stance; say "chance of doing better than its peers" \
 for a probability of beating the median, "lean" for a stance, and "percentage points" \
-for rate moves.
+for rate moves (convert basis points even when a document uses them: 25 basis points is \
+0.25 percentage point).
 - Say how confident the engine is in plain terms (for example "a slight lean, not a \
 strong signal"), and say when the track record is weak.
 - Skip tables unless asked; keep it under about 120 words.
