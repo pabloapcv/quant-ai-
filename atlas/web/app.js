@@ -219,6 +219,13 @@
       parts.push(`<div class="card"><h3>What changed since ${esc(dayName(wc.since))}</h3>${wc.items.length
         ? `<ul class="changes">${wc.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
         : '<p class="muted">No significant changes in the past month.</p>'}</div>`);
+      if ((b.prices || []).length) {
+        const mv = (x, kind) => (x === null || x === undefined ? '—' : kind === 'pct' ? spct(x, 0) : `${x > 0 ? '+' : ''}${num(x, 2)} pts`);
+        const rows = b.prices.map((pr) => `<tr${pr.big ? ' class="big"' : ''}><td>${esc(pr.name)}${pr.level !== null ? ` <span class="muted small">now ${num(pr.level, 2)}%</span>` : ''}${pr.big ? ' <span class="tag">big move</span>' : ''}</td>
+          <td class="num">${mv(pr.change_3m, pr.kind)}</td><td class="num">${mv(pr.change_12m, pr.kind)}</td></tr>`).join('');
+        parts.push(`<h2>Prices that matter</h2><div class="card"><div class="wrap"><table class="prices"><thead><tr><th></th><th class="num">Past 3 months</th><th class="num">Past year</th></tr></thead><tbody>${rows}</tbody></table></div>
+          <p class="small muted">Commodities are world benchmark prices in US dollars, as monthly averages; rates are changes in percentage points. Rises are not colored as good or bad: that depends on whether you buy or sell. "Big move" means 15% or more in 3 months or 25% in a year (half a point or a full point for rates).</p></div>`);
+      }
       parts.push(`<h2>Your business</h2><div class="card" id="lens">
         <div class="seg no-print" id="lens-markets" role="tablist"></div>
         <div class="controls"><label><span id="lens-prompt">My business is closest to</span> <select id="lens-asset"><option>Loading…</option></select></label></div>
@@ -281,7 +288,7 @@
     sel.disabled = true;
     const body = $('#lens-body');
     body.className = 'muted small';
-    body.innerHTML = `<span class="spinner"></span> Getting the list (if the server just started, this can take up to a minute)…`;
+    body.innerHTML = `<span class="spinner"></span> Getting the list (the first look after a new data run can take a few minutes)…`;
     try {
       const { assets } = await api(`/v1/lens?market=${encodeURIComponent(m.id)}`);
       if (store.get('ramon_lens_market', 'ind12') !== m.id) return; // switched again meanwhile

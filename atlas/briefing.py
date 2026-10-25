@@ -126,6 +126,65 @@ def _leans(views: dict[str, Any], label: str) -> dict[str, Any]:
     }
 
 
+# Prices an executive watches: (series id, plain name, "pct" price or "pp" rate). Monthly IMF
+# commodity averages and daily/weekly FRED series alike: changes are measured against the
+# latest observation at least 3 / 12 months older than the newest one.
+PRICES: tuple[tuple[str, str, str], ...] = (
+    ("CMDTY.OIL.BRENT", "Crude oil (Brent)", "pct"),
+    ("CMDTY.GAS.US", "Natural gas (US)", "pct"),
+    ("CMDTY.GAS.EU", "Natural gas (Europe)", "pct"),
+    ("CMDTY.COPPER", "Copper", "pct"),
+    ("CMDTY.ALUMINUM", "Aluminum", "pct"),
+    ("CMDTY.WHEAT", "Wheat", "pct"),
+    ("CMDTY.GOLD", "Gold", "pct"),
+    ("US.USD.BROAD", "US dollar vs trading partners", "pct"),
+    ("US.RATES.10Y", "10-year US Treasury yield", "pp"),
+    ("US.MORTGAGE.30Y", "30-year US mortgage rate", "pp"),
+    ("US.CREDIT.BAA10Y", "Extra yield on corporate bonds (Baa)", "pp"),
+)
+BIG_MOVE = {"pct": (0.15, 0.25), "pp": (0.5, 1.0)}  # (3 months, 12 months)
+
+
+def _change(obs: list[tuple[date, float]], days: int, kind: str) -> float | None:
+    last_d, last_v = obs[-1]
+    base = [v for d, v in obs if d <= last_d - timedelta(days=days)]
+    if not base or (kind == "pct" and base[-1] == 0):
+        return None
+    return last_v / base[-1] - 1 if kind == "pct" else last_v - base[-1]
+
+
+def price_moves(series: dict[str, list[tuple[date, float]]]) -> list[dict[str, Any]]:
+    """3- and 12-month moves of ``PRICES``, flagging the big ones (``BIG_MOVE``)."""
+    out = []
+    for sid, name, kind in PRICES:
+        obs = sorted(series.get(sid) or [])
+        if not obs:
+            continue
+        c3, c12 = _change(obs, 89, kind), _change(obs, 360, kind)
+        t3, t12 = BIG_MOVE[kind]
+        out.append(
+            {
+                "series_id": sid,
+                "name": name,
+                "kind": kind,
+                "as_of": obs[-1][0].isoformat(),
+                "level": obs[-1][1] if kind == "pp" else None,
+                "change_3m": c3,
+                "change_12m": c12,
+                "big": (c3 is not None and abs(c3) >= t3) or (c12 is not None and abs(c12) >= t12),
+            }
+        )
+    return out
+
+
+def _price_series(kit: Any) -> dict[str, list[tuple[date, float]]]:
+    df = kit.store.as_of([sid for sid, _, _ in PRICES], datetime.now(UTC))
+    out: dict[str, list[tuple[date, float]]] = {}
+    for sid, d, v in df.select("series_id", "event_time", "value").drop_nulls().iter_rows():
+        out.setdefault(sid, []).append((d, v))
+    return out
+
+
 HIDDEN_ALERTS = {"data_quality", "live_ic_drift"}  # operational, not for this audience
 
 
@@ -246,6 +305,10 @@ def build_briefing(
         for a in alerts
         if a.get("rule") not in HIDDEN_ALERTS
     ][:6]
+    try:
+        out["prices"] = price_moves(_price_series(kit))
+    except Exception:  # no store (tests) or data not ingested: the section is left out
+        out["prices"] = []
     out["what_changed"] = {
         "since": since.isoformat(),
         "items": _what_changed(out["economy"], before, out["central_banks"], since),
@@ -274,6 +337,12 @@ def _quarter(q: str) -> str:
     return f"{q[4:]} {q[:4]}" if len(q) == 6 and q[4] == "Q" else q
 
 
+def _fmt_move(x: float | None, kind: str) -> str:
+    if x is None:
+        return "n/a"
+    return f"{x * 100:+.0f}%" if kind == "pct" else f"{x:+.2f} pts"
+
+
 def to_markdown(b: dict[str, Any], as_of: date) -> str:
     """The briefing as a short note to read or forward (same content as the web page)."""
     lines = [f"# Ramon briefing, {as_of:%B} {as_of.day}, {as_of.year}", ""]
@@ -296,6 +365,21 @@ def to_markdown(b: dict[str, Any], as_of: date) -> str:
     wc = b.get("what_changed") or {}
     lines += [f"## What changed since {wc.get('since', '')}", ""]
     lines += [f"- {t}" for t in wc.get("items", [])] or ["- No significant changes."]
+    if b.get("prices"):
+        lines += [
+            "",
+            "## Prices that matter",
+            "",
+            "| | Past 3 months | Past year |",
+            "|---|---|---|",
+        ]
+        for pr in b["prices"]:
+            big = " **(big move)**" if pr["big"] else ""
+            m3, m12 = (
+                _fmt_move(pr["change_3m"], pr["kind"]),
+                _fmt_move(pr["change_12m"], pr["kind"]),
+            )
+            lines.append(f"| {pr['name']}{big} | {m3} | {m12} |")
     lines += ["", "## Central banks", ""]
     for c in b.get("central_banks", []):
         tone = f" Tone: {c['tone']}." if c.get("tone") else ""

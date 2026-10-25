@@ -155,3 +155,26 @@ def test_presets(data: Path) -> None:
     ps = TestClient(app).get("/v1/presets").json()["presets"]
     assert {p["id"] for p in ps} >= {"oil_up", "rates_up", "panic"}
     assert all(p["when"] and p["shocks"] for p in ps)
+
+
+def test_briefing_cached_on_disk_across_restarts(
+    data: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    import atlas.briefing
+
+    data = shutil.copytree(data, tmp_path / "d", ignore=shutil.ignore_patterns("cache"))
+
+    calls: list[int] = []
+
+    def fake(kit: object, alerts: object, today: object = None) -> dict[str, object]:
+        calls.append(1)
+        return {"economy": None, "n": len(calls)}
+
+    monkeypatch.setattr(atlas.briefing, "build_briefing", fake)
+    settings = Settings(data_dir=data, config_dir=REPO / "config")
+    first = TestClient(create_app(settings)).get("/v1/briefing").json()
+    second = TestClient(create_app(settings)).get("/v1/briefing").json()  # a "restart"
+    assert first == second == {"economy": None, "n": 1}
+    assert len(list((data / "cache" / "web").glob("*_briefing.json"))) == 1

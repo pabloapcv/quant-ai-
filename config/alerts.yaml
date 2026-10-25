@@ -31,6 +31,20 @@ rules:
     denominator: US.VOL.VIX3M
     threshold: 1.0               # VIX / VIX3M above 1: front-end stress
 
+  - name: price_move_3m
+    kind: price_move
+    days: 92                     # about 3 months (commodity prices are monthly averages)
+    threshold: 0.20              # a rise or fall of 20% or more
+    series:
+      CMDTY.OIL.BRENT: Crude oil (Brent)
+      CMDTY.GAS.US: Natural gas (US)
+      CMDTY.GAS.EU: Natural gas (Europe)
+      CMDTY.COPPER: Copper
+      CMDTY.ALUMINUM: Aluminum
+      CMDTY.WHEAT: Wheat
+      CMDTY.MAIZE: Corn
+      CMDTY.COFFEE: Coffee
+
   - name: view_flip_3m
     kind: view_flip
     horizon: 3

@@ -122,6 +122,10 @@ SIGNAL_WORDS = {
     "cli_chg_6": "the six-month change in its economy's leading indicator",
     "cli_level": "the level of its economy's leading indicator",
     "carry": "its interest-rate advantage over other currencies",
+    "carry_chg_12": "the change in its interest-rate advantage over the past year",
+    "term_spread": "how steep its yield curve is",
+    "yield_vs_60m": "its bond yield compared with its five-year average",
+    "cli_fall_6": "a slowdown in its economy's leading indicator",
 }
 
 

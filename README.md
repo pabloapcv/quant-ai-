@@ -49,7 +49,7 @@ Start it with `ramon api serve` and open **http://127.0.0.1:8710/**.
 
 | Page | What it shows | Uses AI? |
 |---|---|---|
-| **Briefing** (home) | The economy in one sentence; overall picture, recession risk, current growth and borrowing conditions with traffic lights; what changed in the past month; what the Fed and ECB decided and their tone; where the models lean; recent warnings. Print or save it as a PDF. | No. Fixed rules turn numbers into sentences. |
+| **Briefing** (home) | The economy in one sentence; overall picture, recession risk, current growth and borrowing conditions with traffic lights; what changed in the past month; prices that matter (oil, gas, metals, wheat, gold, the dollar, Treasury and mortgage rates) over 3 and 12 months with big moves flagged; what the Fed and ECB decided and their tone; where the models lean; recent warnings. Print or save it as a PDF. | No. Fixed rules turn numbers into sentences. |
 | **Your business** (on the Briefing) | Pick a US sector, a stock market abroad, a major or emerging-market currency you are exposed to, or a commodity you buy or sell (energy, metals, crops). See the model lean and what drives it, how it moved in each what-if event, and what followed in the past periods most like today. | No |
 | **What if…?** | One-click events (oil up or down 30%, interest rates up or down 1 point, market panic, a stronger dollar, rising inflation fears) with a winners-and-losers chart for sectors, world stock markets, major or emerging-market currencies, government bonds or commodities. | No |
 | **Ask Ramon** | Chat. Ask in your own words; answers come in plain language, with the data steps shown and a "✓ Every number checked" line. | Yes (Claude) |
@@ -63,8 +63,8 @@ Start it with `ramon api serve` and open **http://127.0.0.1:8710/**.
 - **Weekly research note**: a longer analyst note drafted by Claude, reviewed by a second
   "red team" pass, with every number checked (`ramon report weekly`, Mondays 07:00).
 - **Alerts**: rules in `config/alerts.yaml`, for example the recession probability crossing
-  40%, a jump in corporate borrowing spreads, a central-bank rate change or a model lean
-  flipping. They are logged daily and can be sent to ntfy or Slack once configured.
+  40%, a jump in corporate borrowing spreads, a central-bank rate change, a key commodity
+  rising or falling 20% in three months, or a model lean flipping. They are logged daily and can be sent to ntfy or Slack once configured.
 
 ### Other interfaces
 
@@ -243,7 +243,8 @@ uv run ramon api serve
 ```
 
 Then open **http://127.0.0.1:8710/**. The server prepares the Briefing and the Your
-business data in the background as it starts, so the first page may take up to a minute.
+business data in the background and keeps them on disk for the day, so only the first start
+after a new pipeline run takes a few minutes; restarts after that are instant.
 
 ---
 
@@ -356,7 +357,7 @@ atlas/                Python package (the engine)
 config/               series catalog, alert rules, test questions
 deploy/launchd/       scheduled-job templates
 docs/                 runbooks, research status, signal cards
-tests/                287 automated tests, including the look-ahead leakage suite
+tests/                290 automated tests, including the look-ahead leakage suite
 data/                 data, reports and logs (created locally, never committed)
 PRD.md                full product and technical specification
 ```
@@ -365,7 +366,7 @@ PRD.md                full product and technical specification
 
 ## 13. Quality and testing
 
-- **Automated tests:** 287 tests run on every change in CI (Python 3.12 and 3.13), along with
+- **Automated tests:** 290 tests run on every change in CI (Python 3.12 and 3.13), along with
   linting, formatting and type checks. The look-ahead leakage suite is part of the run and
   blocks merges.
 - **Assistant evaluation:** `ramon eval run` asks the 172 test questions and compares the

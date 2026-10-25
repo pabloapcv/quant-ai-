@@ -29,7 +29,7 @@ def test_repo_config_loads() -> None:
     kinds = {r.kind for r in cfg.rules}
     assert kinds == {
         "regime_prob_cross", "recession_prob", "series_change", "ratio", "view_flip",
-        "pipeline_failure", "live_ic_drift", "cb_decision",
+        "pipeline_failure", "live_ic_drift", "cb_decision", "price_move",
     }  # fmt: skip
     assert cfg.channels.ntfy_topic_url == ""  # external channels ship disabled
 
@@ -182,3 +182,14 @@ def test_cb_decision_rule(tmp_path: Path) -> None:
     assert "FOMC 2026-10-28" in alerts[0].message
     holds = AlertConfig(rules=[Rule(name="cb", kind="cb_decision", days=3, include_holds=True)])
     assert len(evaluate(holds, AlertInputs(cb_statements=recent), {}, now.date())) == 2
+
+
+def test_price_move_alert() -> None:
+    from atlas.alerts import Rule, check_price_move
+
+    rule = Rule(name="price_move_3m", kind="price_move", days=92, threshold=0.2)
+    obs = [(date(2026, m, 1), v) for m, v in ((5, 100.0), (6, 100.0), (7, 110.0), (9, 125.0))]
+    (a,) = check_price_move(rule, "CMDTY.WHEAT", "Wheat", obs)
+    assert a.message == "Wheat prices rose 25% over the past 3 months (latest September 2026)."
+    assert a.key == "price_move_3m:CMDTY.WHEAT:up"
+    assert check_price_move(rule, "CMDTY.WHEAT", "Wheat", obs[:-1]) == []

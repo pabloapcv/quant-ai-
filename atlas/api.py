@@ -167,7 +167,14 @@ def create_app(
         key = (datetime.now(UTC).date(), len(recent), latest_run_name())
         with briefing_lock:  # a request during the startup warm-up waits for it
             if briefing_cache.get("key") != key:  # ~10 s to build; data changes once a day
-                briefing_cache.update(key=key, value=build_briefing(kit.get(), recent))
+                briefing_cache.update(
+                    key=key,
+                    value=from_disk(
+                        "briefing",
+                        lambda: build_briefing(kit.get(), recent),
+                        variant=f"-alerts{len(recent)}",
+                    ),
+                )
         return briefing_cache["value"]  # type: ignore[no-any-return]
 
     @app.get("/v1/presets", dependencies=guarded)
@@ -179,6 +186,26 @@ def create_app(
 
     facts_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
     facts_lock = threading.Lock()
+    disk_cache = data_dir / "cache" / "web"
+
+    def from_disk(name: str, build: Any, variant: str = "") -> dict[str, Any]:
+        """``build()`` once per day and pipeline run, kept on disk so restarts reuse it."""
+        stamp = f"{datetime.now(UTC).date()}_{latest_run_name().removesuffix('.json')}{variant}"
+        path = disk_cache / f"{stamp}_{name}.json"
+        if path.exists():
+            try:
+                cached: dict[str, Any] = json.loads(path.read_text())
+                return cached
+            except ValueError:
+                pass  # half-written file: rebuild
+        value: dict[str, Any] = build()
+        disk_cache.mkdir(parents=True, exist_ok=True)
+        for old in disk_cache.glob(f"*_{name}.json"):  # earlier days / runs
+            old.unlink(missing_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(jsonsafe.dumps(value))
+        tmp.replace(path)
+        return value
 
     def market_facts(market: str) -> dict[str, Any]:
         """Shared per-market work for the lenses (~15 s), once per day and pipeline run."""
@@ -189,7 +216,7 @@ def create_app(
             if key not in facts_cache:
                 if len(facts_cache) > 12:  # old days' entries
                     facts_cache.clear()
-                facts_cache[key] = build(kit.get(), market)
+                facts_cache[key] = from_disk(f"lens-{market}", lambda: build(kit.get(), market))
             return facts_cache[key]
 
     @app.get("/v1/lens", dependencies=guarded)

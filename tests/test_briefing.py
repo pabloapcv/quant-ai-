@@ -3,6 +3,8 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from atlas.briefing import (
     _bank,
     _conditions,
@@ -128,3 +130,25 @@ def test_markdown_and_recent_alerts(tmp_path: Path) -> None:
     for day in ("2026-10-01", "2026-10-20"):
         (tmp_path / "alerts" / f"{day}.jsonl").write_text(json.dumps({"at": day}) + "\n")
     assert [a["at"] for a in recent_alerts(tmp_path, 14, date(2026, 10, 22))] == ["2026-10-20"]
+
+
+def test_price_moves() -> None:
+    from atlas.briefing import price_moves
+
+    monthly = [(date(2025, m, 1), 100.0) for m in range(1, 13)] + [(date(2026, 1, 1), 130.0)]
+    daily_rate = [(date(2025, 1, 2), 4.0), (date(2025, 10, 1), 4.1), (date(2026, 1, 2), 4.3)]
+    out = {
+        r["series_id"]: r
+        for r in price_moves({"CMDTY.COPPER": monthly, "US.RATES.10Y": daily_rate})
+    }
+    cu = out["CMDTY.COPPER"]
+    assert cu["change_3m"] == pytest.approx(0.30)
+    assert cu["change_12m"] == pytest.approx(0.30)
+    assert cu["big"] is True
+    assert cu["level"] is None
+    ten = out["US.RATES.10Y"]
+    assert ten["change_3m"] == pytest.approx(0.2)
+    assert ten["change_12m"] == pytest.approx(0.3)
+    assert ten["level"] == 4.3
+    assert ten["big"] is False
+    assert "CMDTY.OIL.BRENT" not in out  # no data: left out

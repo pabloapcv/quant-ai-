@@ -103,3 +103,12 @@ def test_commodity_price_sentence() -> None:
         "(monthly average, 2026-09)."
     )
     assert "early evidence" in b["trust_note"]
+
+
+def test_every_lens_driver_has_plain_words() -> None:
+    from atlas.lens import MARKETS, SIGNAL_WORDS
+    from atlas.signals.universes import get_universe
+
+    for market in MARKETS:
+        comps = get_universe(market).ensemble_components or ()
+        assert set(comps) <= set(SIGNAL_WORDS), market

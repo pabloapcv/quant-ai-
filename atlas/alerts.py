@@ -29,7 +29,7 @@ from atlas import jsonsafe
 
 Kind = Literal[
     "regime_prob_cross", "recession_prob", "series_change", "ratio", "view_flip",
-    "pipeline_failure", "live_ic_drift", "cb_decision",
+    "pipeline_failure", "live_ic_drift", "cb_decision", "price_move",
 ]  # fmt: skip
 
 
@@ -47,6 +47,7 @@ class Rule(BaseModel):
     window: int = 6
     sigmas: float = 2.0
     include_holds: bool = False
+    series: dict[str, str] = Field(default_factory=dict)  # price_move: series id -> plain name
 
 
 class Channels(BaseModel):
@@ -277,12 +278,16 @@ def evaluate(
             alerts += check_live_ic(rule, inputs.ic_monitor)
         elif rule.kind == "cb_decision":
             alerts += check_cb_decisions(rule, inputs.cb_statements)
+        elif rule.kind == "price_move":
+            for sid, name in rule.series.items():
+                alerts += check_price_move(rule, sid, name, inputs.series.get(sid, []))
     return alerts
 
 
 # ---------------------------------------------------------------------------- inputs
 def series_needed(cfg: AlertConfig) -> list[str]:
     ids = {r.series_id for r in cfg.rules} | {r.numerator for r in cfg.rules}
+    ids |= {sid for r in cfg.rules for sid in r.series}
     ids |= {r.denominator for r in cfg.rules}
     return sorted(i for i in ids if i)
 
@@ -296,6 +301,33 @@ def load_views(
         if files:
             out[d.parent.name] = [json.loads(f.read_text()) for f in files]
     return out
+
+
+def check_price_move(
+    rule: Rule, series_id: str, name: str, obs: Sequence[tuple[date, float]]
+) -> list[Alert]:
+    """Percent change over ``days`` at least ``threshold`` (a fraction) either way."""
+    if not obs or rule.threshold is None:
+        return []
+    obs = sorted(obs)
+    last_d, last_v = obs[-1]
+    base = [v for d, v in obs if d <= last_d - timedelta(days=rule.days)]
+    if not base or base[-1] == 0:
+        return []
+    chg = last_v / base[-1] - 1
+    if abs(chg) < rule.threshold:
+        return []
+    up = chg > 0
+    months = round(rule.days / 30.4)
+    return [
+        Alert(
+            rule=rule.name,
+            key=f"{rule.name}:{series_id}:{'up' if up else 'down'}",
+            message=f"{name} prices {'rose' if up else 'fell'} {abs(chg):.0%} over the past "
+            f"{months} months (latest {last_d:%B %Y}).",
+            value=chg,
+        )
+    ]
 
 
 def frame_to_obs(df: pl.DataFrame, lookback_days: int = 60) -> list[tuple[date, float]]:
@@ -441,9 +473,10 @@ def run_alerts(
         rep = RegimeEngine(cube).run(now.date(), with_hmm=False)
         inputs.quadrant_probs = {str(k): float(v) for k, v in rep.quadrant_probs.items()}
         inputs.recession_prob = rep.recession.prob_12m if rep.recession else None
+    lookback = max([60] + [r.days + 45 for r in cfg.rules if r.kind == "price_move"])
     for sid in series_needed(cfg):
         if sid in cube:
-            inputs.series[sid] = frame_to_obs(cube.as_of(sid, now))
+            inputs.series[sid] = frame_to_obs(cube.as_of(sid, now), lookback)
     for h in sorted({r.horizon for r in cfg.rules if r.kind == "view_flip"}):
         inputs.views.update(load_views(data_dir, h))
     windows = [r.days for r in cfg.rules if r.kind == "cb_decision"]

@@ -136,3 +136,5 @@ a { color: var(--accent); }
 .seg { display: inline-flex; flex-wrap: wrap; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px; margin-bottom: 12px; }
 .seg button { background: none; border: 0; border-radius: 999px; padding: 5px 12px; color: var(--muted); }
 .seg button[aria-selected="true"] { background: var(--chip); color: var(--fg); font-weight: 600; }
+.tag { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); font-weight: 600; margin-left: 4px; }
+table.prices td:first-child { font-weight: 550; }
