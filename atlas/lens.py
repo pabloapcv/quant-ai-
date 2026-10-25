@@ -28,11 +28,24 @@ MARKETS: dict[str, dict[str, str]] = {
         "prompt": "A country we sell to or invest in",
     },
     "fx_g10": {
-        "label": "Currency",
+        "label": "Major currency",
         "noun": "currency",
         "peers": "the other major currencies",
         "avg": "the average currency",
         "prompt": "A currency we are exposed to (against the US dollar)",
+    },
+    "fx_em": {
+        "label": "Emerging-market currency",
+        "noun": "currency",
+        "peers": "the other emerging-market currencies",
+        "avg": "the average emerging-market currency",
+        "prompt": "An emerging-market currency we are exposed to (against the US dollar)",
+        "trust": "Read this lean with care. It ranks the total return of holding the currency, "
+        "including the interest it pays, which is known in advance. Over 2021-2025, data the "
+        "models never saw, that ranking was right in 72% of months. On the exchange rate alone "
+        "(what matters if you only convert money), higher-interest currencies did not do better "
+        "before 2021 and did only in 2021-2025, a period that suited them. The event and history "
+        "figures describe the past, not a forecast.",
     },
     "cmdty": {
         "label": "Commodity",

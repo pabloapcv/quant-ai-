@@ -37,6 +37,20 @@ CURRENCIES: dict[str, tuple[str, str]] = {
     "NOK": ("Norwegian krone", "NOR"),
 }
 FX_NAMES = {k: v[0] for k, v in CURRENCIES.items()}
+# Emerging-market currencies with both an ECB euro reference rate and an OECD 3-month rate.
+# India's rate starts in 2011 (no carry before); Indonesia's stops at 2025-12, so it is left out.
+EM_CURRENCIES: dict[str, tuple[str, str]] = {
+    "MXN": ("Mexican peso", "MEX"),
+    "KRW": ("South Korean won", "KOR"),
+    "PLN": ("Polish zloty", "POL"),
+    "HUF": ("Hungarian forint", "HUN"),
+    "CZK": ("Czech koruna", "CZE"),
+    "ZAR": ("South African rand", "ZAF"),
+    "CNY": ("Chinese yuan", "CHN"),
+    "ILS": ("Israeli shekel", "ISR"),
+    "INR": ("Indian rupee", "IND"),
+}
+EM_NAMES = {k: v[0] for k, v in EM_CURRENCIES.items()}
 RATE_LAG_MONTHS = 1
 RATE_FFILL_MONTHS = 3  # ragged edge: a rate series may lag (the UK's stops early 2026)
 
@@ -45,21 +59,25 @@ def _levels(store: PITStore, ids: list[str]) -> pl.DataFrame:
     return store.as_of(ids, datetime.now(UTC)).select("series_id", "event_time", "value")
 
 
-def _usd_per_unit(store: PITStore) -> pl.DataFrame:
+def _usd_per_unit(
+    store: PITStore, currencies: dict[str, tuple[str, str]] = CURRENCIES
+) -> pl.DataFrame:
     """date, asset, usd_per_unit at month end, via ECB euro crosses."""
-    others = [c for c in CURRENCIES if c != "EUR"]
+    others = [c for c in currencies if c != "EUR"]
     fx = _levels(store, [f"FX.EUR{c}.EOP" for c in ["USD", *others]])
     wide = fx.pivot(index="event_time", on="series_id", values="value").sort("event_time")
     if "FX.EURUSD.EOP" not in wide.columns:
         raise ValueError("FX.EURUSD.EOP missing — run `atlas ingest sdmx --agency ecb`")
     usd_per_eur = pl.col("FX.EURUSD.EOP")
-    frames = [
-        wide.select(
-            pl.col("event_time").alias("date"),
-            pl.lit("EUR").alias("asset"),
-            usd_per_eur.alias("px"),
+    frames = []
+    if "EUR" in currencies:
+        frames.append(
+            wide.select(
+                pl.col("event_time").alias("date"),
+                pl.lit("EUR").alias("asset"),
+                usd_per_eur.alias("px"),
+            )
         )
-    ]
     for c in others:
         col = f"FX.EUR{c}.EOP"
         if col in wide.columns:
@@ -73,9 +91,11 @@ def _usd_per_unit(store: PITStore) -> pl.DataFrame:
     return pl.concat(frames).drop_nulls("px")
 
 
-def _short_rates(store: PITStore) -> pl.DataFrame:
+def _short_rates(
+    store: PITStore, currencies: dict[str, tuple[str, str]] = CURRENCIES
+) -> pl.DataFrame:
     """date, asset, rate (local 3-month rate minus the US one, pp) for month ``date``."""
-    areas = {area: cur for cur, (_, area) in CURRENCIES.items()}
+    areas = {area: cur for cur, (_, area) in currencies.items()}
     raw = _levels(store, [f"{a}.RATES.3M" for a in [*areas, "USA"]]).select(
         pl.col("event_time").alias("date"),
         pl.col("series_id").str.split(".").list.first().alias("area"),
@@ -93,12 +113,12 @@ def _short_rates(store: PITStore) -> pl.DataFrame:
     )
 
 
-def fx_panel(store: PITStore) -> pl.DataFrame:
+def fx_panel(store: PITStore, currencies: dict[str, tuple[str, str]] = CURRENCIES) -> pl.DataFrame:
     """Gap-free (date x currency) panel: excess return in USD, carry known at month end."""
-    px = _usd_per_unit(store)
+    px = _usd_per_unit(store, currencies)
     if px.is_empty():
         raise ValueError("no ECB month-end FX rates — run `atlas ingest sdmx --agency ecb`")
-    rates = _short_rates(store)
+    rates = _short_rates(store, currencies)
     grid = px.select("date").unique().join(px.select("asset").unique(), how="cross")
     df = (
         grid.join(px, on=["date", "asset"], how="left")
@@ -121,18 +141,20 @@ def fx_panel(store: PITStore) -> pl.DataFrame:
             .alias("ret")
         )
     )
-    df = df.join(_slope_and_equity(store), on=["date", "asset"], how="left")
+    df = df.join(_slope_and_equity(store, currencies), on=["date", "asset"], how="left")
     return df.drop("px", "diff").filter(pl.col("ret").is_not_null())
 
 
-def _slope_and_equity(store: PITStore) -> pl.DataFrame:
+def _slope_and_equity(
+    store: PITStore, currencies: dict[str, tuple[str, str]] = CURRENCIES
+) -> pl.DataFrame:
     """date, asset, slope_diff, eq_mom: relative curve slope and local equity momentum.
 
     Both from OECD monthly data, lagged a month for publication like the rates. Equity
     momentum is 12-1 on monthly-average share prices (skipping the latest month); markets
     without an OECD share index (Switzerland, Sweden, Norway) have none.
     """
-    areas = {area: cur for cur, (_, area) in CURRENCIES.items()}
+    areas = {area: cur for cur, (_, area) in currencies.items()}
     ids = [*areas, "USA"]
     empty = pl.DataFrame(
         schema={"date": pl.Date, "asset": pl.String, "slope_diff": pl.Float64, "eq_mom": pl.Float64}
@@ -257,4 +279,16 @@ FX_FAMILIES: dict[str, list[SignalDef]] = {
     "long_term_reversal": [long_term_reversal(lb, 12) for lb in (36, 60)],
     "carry_change": [carry_change(m) for m in (6, 12)],
     "curve_slope": [slope_difference()],
+}
+
+
+def fx_em_panel(store: PITStore) -> pl.DataFrame:
+    return fx_panel(store, EM_CURRENCIES)
+
+
+# Emerging markets: the G10 definitions, minus the curve slope (few EM 10-year series). The
+# ensemble components are chosen on the pre-2021 research window (see universes.py).
+FX_EM_SIGNALS: dict[str, SignalDef] = {n: s for n, s in FX_SIGNALS.items() if n != "slope_diff"}
+FX_EM_FAMILIES: dict[str, list[SignalDef]] = {
+    k: v for k, v in FX_FAMILIES.items() if k != "curve_slope"
 }

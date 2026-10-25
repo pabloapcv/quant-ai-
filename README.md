@@ -50,8 +50,8 @@ Start it with `ramon api serve` and open **http://127.0.0.1:8710/**.
 | Page | What it shows | Uses AI? |
 |---|---|---|
 | **Briefing** (home) | The economy in one sentence; overall picture, recession risk, current growth and borrowing conditions with traffic lights; what changed in the past month; what the Fed and ECB decided and their tone; where the models lean; recent warnings. Print or save it as a PDF. | No. Fixed rules turn numbers into sentences. |
-| **Your business** (on the Briefing) | Pick a US sector, a stock market abroad, a currency you are exposed to, or a commodity you buy or sell (energy, metals, crops). See the model lean and what drives it, how it moved in each what-if event, and what followed in the past periods most like today. | No |
-| **What if…?** | One-click events (oil up or down 30%, interest rates up or down 1 point, market panic, a stronger dollar, rising inflation fears) with a winners-and-losers chart for sectors, world stock markets, currencies, government bonds or commodities. | No |
+| **Your business** (on the Briefing) | Pick a US sector, a stock market abroad, a major or emerging-market currency you are exposed to, or a commodity you buy or sell (energy, metals, crops). See the model lean and what drives it, how it moved in each what-if event, and what followed in the past periods most like today. | No |
+| **What if…?** | One-click events (oil up or down 30%, interest rates up or down 1 point, market panic, a stronger dollar, rising inflation fears) with a winners-and-losers chart for sectors, world stock markets, major or emerging-market currencies, government bonds or commodities. | No |
 | **Ask Ramon** | Chat. Ask in your own words; answers come in plain language, with the data steps shown and a "✓ Every number checked" line. | Yes (Claude) |
 | **How it works** | A plain-language explanation of the data, models and checks, plus a glossary. | No |
 | **Analyst view** (checkbox) | Adds the technical pages: macro detail, model views with ranges, a custom scenario builder, historical analogs, and system status with the track record. Chat answers switch to analyst style. | Partly |
@@ -115,13 +115,13 @@ All sources are free and public. Only FRED needs a (free) key.
 |---|---|---|
 | **St. Louis Fed (FRED / ALFRED)** | US growth, jobs, inflation, interest rates, credit spreads, market volatility, with full revision history; Atlanta Fed GDPNow | Free FRED key |
 | **Kenneth French data library** (Dartmouth) | Returns for 12 and 49 US industries and standard market factors, back to 1926 | No |
-| **OECD** | Leading indicators, share prices and 10-year yields for 14 countries | No |
-| **ECB** | Euro exchange rates and yield curve; monetary-policy statements and press-conference transcripts | No |
+| **OECD** | Leading indicators, share prices and 10-year yields for 14 countries; short-term interest rates for developed and emerging markets | No |
+| **ECB** | Euro exchange rates (including 14 emerging-market currencies) and yield curve; monetary-policy statements and press-conference transcripts | No |
 | **BIS, IMF** | Real effective exchange rates, consumer prices | No |
 | **IMF commodity prices (PCPS)** | Monthly world benchmark prices for 17 commodities since 1992: oil, gas, coal, copper, aluminum, nickel, zinc, iron ore, gold, silver, wheat, corn, soybeans, sugar, coffee, cotton | No |
 | **Federal Reserve website** | FOMC statements and minutes | No |
 
-The catalog of 286 series is in `config/series.yaml`. Raw downloads are archived under
+The catalog of 300 series is in `config/series.yaml`. Raw downloads are archived under
 `data/raw/` so any figure can be traced back to its source.
 
 **Not included yet:** individual company prices and fundamentals (needs a paid vendor, see
@@ -136,7 +136,7 @@ The catalog of 286 series is in `config/series.yaml`. Raw downloads are archived
 | **Economy (growth, inflation, financial conditions)** | Dozens of indicators combined into three scores relative to trend, and the probability of each of four "economic weather" types (healthy growth; strong growth with rising inflation; soft growth with elevated inflation; slowing growth with easing inflation). A second statistical model gives an independent opinion. |
 | **Recession risk (12 months)** | A statistical model trained on past US recessions as dated by the NBER, using only data available at each point in time. |
 | **Current growth** | The Atlanta Fed's GDPNow estimate. Ramon's own free-data nowcast did not beat it, so GDPNow is shown instead. |
-| **Market leans** | For US industries, country stock markets, major currencies, government bonds and commodities: a combination of well-studied signals (price trends, valuation, steadiness, interest-rate advantage, leading indicators), giving each asset's chance of beating its peers over 1 and 3 months, with a likely range. |
+| **Market leans** | For US industries, country stock markets, major and emerging-market currencies, government bonds and commodities: a combination of well-studied signals (price trends, valuation, steadiness, interest-rate advantage, leading indicators), giving each asset's chance of beating its peers over 1 and 3 months, with a likely range. |
 | **What if…?** | How each asset moved in the same month as past moves in oil, interest rates, the dollar, market fear and inflation expectations, estimated on about 20 years of monthly history. |
 | **Similar periods** | The past months whose economic readings most resemble today's, and how each asset did over the following year. |
 | **Central-bank tone** | Claude reads each new Fed and ECB statement once and records the decision and tone (from strongly dovish to strongly hawkish). The rate decision is also extracted by fixed rules as a cross-check. |
@@ -166,12 +166,12 @@ specification is in [PRD.md](PRD.md).
 
 The honest summary is that **the economic readings describe published data well, but the
 market rankings have not yet shown reliable predictive skill on data they never saw**, with
-commodities the one early exception.
+commodities and emerging-market currencies the early exceptions (see the caveats in the table).
 
 | Test | Result |
 |---|---|
 | Recession model (point-in-time backtest) | Separates the run-up to recessions from other periods well (AUC 0.90, where 0.5 is a coin flip and 1.0 is perfect) |
-| Market rankings, 2021-2025 holdout (3-month) | Sectors, countries, currencies and bonds: correlation with actual outcomes between -0.065 and +0.044, none statistically significant (no better than a simple average). Commodities: +0.091, right in 60% of months, t-statistic 1.73: promising but short of the usual significance bar. |
+| Market rankings, 2021-2025 holdout (3-month) | Sectors, countries, currencies and bonds: correlation with actual outcomes between -0.065 and +0.044, none statistically significant (no better than a simple average). Commodities: +0.091, right in 60% of months, t-statistic 1.73: promising but short of the usual significance bar. Emerging-market currencies: +0.299, right in 72% of months, t-statistic 4.57; mostly the interest the higher-yielding currencies pay (known in advance), plus a period that suited them: on the exchange rate alone the same ranking showed no edge before 2021. |
 | Signal promotion gates | 0 of 84 signal-market pairs pass all six gates; 14 pass five of six |
 | Assistant answers | 97.3 / 100 on the analyst question set; 96.2 / 100 on the executive questions, with every number traced to the data |
 
@@ -188,9 +188,11 @@ automatically. See `docs/phase3_status.md` for the full research status.
   a prompt for discussion.
 - **"What if" is history, not a forecast.** It shows how assets usually moved together in
   the same month. Real events rarely repeat history exactly.
-- **Coverage.** US industries, 14 country stock markets, 8 major currencies, 9
-  government bond markets and 17 commodities. No individual companies, credit products or
-  emerging-market currencies yet.
+- **Coverage.** US industries, 14 country stock markets, 8 major and 9 emerging-market
+  currencies, 9 government bond markets and 17 commodities. No individual companies or credit
+  products yet.
+- **Currency rankings include the interest earned** on holding a currency. A business that
+  only converts money does not earn it; the app says how much of a currency lean is interest.
 - **Commodity prices are monthly averages** of world benchmark spot prices in US dollars,
   not futures returns or the price any one buyer pays.
 - **Monthly data.** Most economic data is monthly and published with a delay. The Briefing
@@ -322,7 +324,7 @@ All endpoints are read-only except chat. Interactive documentation is at `/docs`
 | Endpoint | Returns |
 |---|---|
 | `GET /v1/briefing` | The plain-language Briefing |
-| `GET /v1/lens?market=&asset=` | Your business view for a sector (`ind12`), stock market (`ctry_usd`), currency (`fx_g10`) or commodity (`cmdty`) |
+| `GET /v1/lens?market=&asset=` | Your business view for a sector (`ind12`), stock market (`ctry_usd`), major currency (`fx_g10`), emerging-market currency (`fx_em`) or commodity (`cmdty`) |
 | `GET /v1/presets` | The one-click what-if events |
 | `POST /v1/scenario` | A what-if run for any combination of shocks |
 | `POST /v1/chat` | Ask Ramon (streamed: data steps, then the checked answer) |
@@ -354,7 +356,7 @@ atlas/                Python package (the engine)
 config/               series catalog, alert rules, test questions
 deploy/launchd/       scheduled-job templates
 docs/                 runbooks, research status, signal cards
-tests/                285 automated tests, including the look-ahead leakage suite
+tests/                287 automated tests, including the look-ahead leakage suite
 data/                 data, reports and logs (created locally, never committed)
 PRD.md                full product and technical specification
 ```
@@ -363,7 +365,7 @@ PRD.md                full product and technical specification
 
 ## 13. Quality and testing
 
-- **Automated tests:** 285 tests run on every change in CI (Python 3.12 and 3.13), along with
+- **Automated tests:** 287 tests run on every change in CI (Python 3.12 and 3.13), along with
   linting, formatting and type checks. The look-ahead leakage suite is part of the run and
   blocks merges.
 - **Assistant evaluation:** `ramon eval run` asks the 172 test questions and compares the
@@ -387,12 +389,12 @@ The project is built in phases defined in [PRD.md](PRD.md#15-delivery-plan--acce
 | P2 Economy engine | Growth/inflation reading, regimes, recession risk, nowcast | Done (GDPNow used for current growth) |
 | P3 Signals and backtester | Signal library, statistical gates, signal cards | Done; 0 of 84 pass every gate |
 | P4 Views and portfolio | Combined views, ranges, model portfolio, champion/challenger | Done; holdout shows no reliable skill |
-| P5 Global | Countries, currencies, government bonds, commodities | Done for these four; credit not started |
+| P5 Global | Countries, major and emerging-market currencies, government bonds, commodities | Done; credit not started |
 | P6 AI assistant | Tools, chat, number checker, weekly note, evals, central-bank text | Done; transcripts and news not started |
 | P7 Product | Web app, executive briefing, alerts, scenarios, monitoring | Done (local web app) |
 | P8 Live paper track | Monthly frozen views scored over 12 months | Running: first views frozen in October 2026 |
 
-**Next steps:** choose a market-data vendor (P1); add credit and emerging markets; let the live track accumulate a year of evidence before relying on the market
+**Next steps:** choose a market-data vendor (P1); add credit and emerging-market stock markets; let the live track accumulate a year of evidence before relying on the market
 leans; optional hosted deployment with sign-in.
 
 ---

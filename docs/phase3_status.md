@@ -36,3 +36,14 @@ in all four regimes), low volatility t 1.60. The ensemble was pinned to `ltr_60_
 `low_vol_36` on that evidence, then the holdout was opened once (clean): ensemble 3-month IC
 +0.091, t 1.73, hit rate 60% over 57 months; `ltr_60_12` alone +0.095 (t 2.62). The best
 holdout result of any universe, but below t 2, so reported as promising, not validated.
+
+## Emerging-market currencies (added 2026-10-25)
+
+9 currencies vs USD (MXN, KRW, PLN, HUF, CZK, ZAR, CNY, ILS, INR) from ECB month-end rates and
+OECD 3-month rates, same construction as G10 (spot plus the lagged rate differential).
+Research window only: carry t 3.80 (positive in all four regimes, PBO 0.63 across smoothing
+choices), carry change t 2.00, momentum and 5-year reversal weak. Ensemble pinned to `carry` +
+`carry_chg_12`; holdout opened once (clean): 3-month IC +0.299, t 4.57, hit rate 72%.
+Decomposition: carry's rank IC on total returns was +0.150 (research) and +0.337 (holdout),
+but on spot moves alone -0.027 (research) and +0.175 (holdout). The edge is mostly the known
+interest income plus a carry-friendly 2021-2025; the app's currency lens says so.

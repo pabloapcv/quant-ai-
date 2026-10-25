@@ -24,7 +24,16 @@ from atlas.signals.country import (
     DEVELOPED,
     country_panel,
 )
-from atlas.signals.fx import FX_FAMILIES, FX_NAMES, FX_SIGNALS, fx_panel
+from atlas.signals.fx import (
+    EM_NAMES,
+    FX_EM_FAMILIES,
+    FX_EM_SIGNALS,
+    FX_FAMILIES,
+    FX_NAMES,
+    FX_SIGNALS,
+    fx_em_panel,
+    fx_panel,
+)
 from atlas.signals.industry import FAMILIES, SIGNALS, SignalDef, research_panel
 from atlas.signals.library import GENERIC_FAMILIES, GENERIC_SIGNALS, with_macro_factors
 from atlas.signals.rates import RATES_FAMILIES, RATES_NAMES, RATES_SIGNALS, rates_panel
@@ -44,6 +53,11 @@ COUNTRY_COMPONENTS = (
     "mom_12_1", "mom_6_1", "ltr_60_12", "low_vol_36", "cli_chg_6", "cli_level", "yield_fall_12",
 )  # fmt: skip
 FX_COMPONENTS = ("carry", "mom_12_1", "mom_3_0", "ltr_60_12")
+# Chosen on the pre-2021 research window only (`atlas research gates --universe fx_em
+# --exclude-holdout`, 2026-10-25), then tested once on the holdout: carry (t 3.80, positive
+# IC in all four regimes) and its 12-month change (t 2.00). Momentum and 5-year reversal
+# were weak (|t| < 1) and are left out.
+FX_EM_COMPONENTS = ("carry", "carry_chg_12")
 RATES_COMPONENTS = ("term_spread", "mom_12_1", "yield_vs_60m", "cli_fall_6")
 
 INDUSTRY12_NAMES = {  # keys are catalog asset ids (upper-case Ken French names)
@@ -137,6 +151,17 @@ UNIVERSES: dict[str, Universe] = {
         "fx",
         "FX",
         FX_COMPONENTS,
+    ),
+    "fx_em": Universe(
+        "fx_em",
+        "9 emerging-market currencies vs the US dollar: spot plus carry (ECB, OECD rates)",
+        fx_em_panel,
+        FX_EM_SIGNALS,
+        FX_EM_FAMILIES,
+        EM_NAMES,
+        "fx",
+        "FX",
+        FX_EM_COMPONENTS,
     ),
     "rates_dev": Universe(
         "rates_dev",

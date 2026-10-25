@@ -316,7 +316,7 @@
 
   // ---------------------------------------------------------------- What if
   let PRESETS = [];
-  const UNIT_WORD = { ind12: 'the average US sector', ctry_usd: 'the average market', fx_g10: 'the average currency', rates_dev: 'the average bond market', cmdty: 'the average commodity' };
+  const UNIT_WORD = { ind12: 'the average US sector', ctry_usd: 'the average market', fx_g10: 'the average currency', fx_em: 'the average emerging-market currency', rates_dev: 'the average bond market', cmdty: 'the average commodity' };
   let lastPreset = null;
   async function loadPresets() {
     if (PRESETS.length) return;
