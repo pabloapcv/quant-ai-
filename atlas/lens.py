@@ -174,13 +174,15 @@ SIGNAL_WORDS: dict[str, tuple[str, str]] = {
 
 
 def _lean_words(p: float) -> str:
-    if p >= 0.6:
+    """Words for a probability, judged on the whole percent shown, so the two never disagree."""
+    pct = round(p * 100)
+    if pct >= 60:
         return "lean clearly toward"
-    if p > 0.52:
+    if pct >= 53:
         return "lean slightly toward"
-    if p >= 0.48:
+    if pct >= 48:
         return "show no real lean on"
-    if p > 0.4:
+    if pct > 40:
         return "lean slightly against"
     return "lean clearly against"
 

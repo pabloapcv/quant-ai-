@@ -3,9 +3,31 @@
 # market: ind12 (US sectors) | ctry_usd (stock markets abroad) | fx_g10 (major currencies)
 #         | fx_em (emerging-market currencies) | cmdty (commodities)
 # asset:  the name exactly as the app lists it.
-items: []
-# Example:
-# items:
-#   - {market: ind12, asset: Retail and wholesale}
-#   - {market: cmdty, asset: Copper}
-#   - {market: fx_em, asset: Mexican peso}
+# Combined from the retail/consumer, manufacturing/industrial, food & agriculture and
+# global-exporter sets (2026-10-26).
+items:
+  # US sectors
+  - {market: ind12, asset: Retail and wholesale}
+  - {market: ind12, asset: Consumer non-durables}
+  - {market: ind12, asset: Manufacturing}
+  # Stock markets abroad
+  - {market: ctry_usd, asset: Germany}
+  # Commodities
+  - {market: cmdty, asset: Crude oil (Brent)}
+  - {market: cmdty, asset: Natural gas (US)}
+  - {market: cmdty, asset: Copper}
+  - {market: cmdty, asset: Aluminum}
+  - {market: cmdty, asset: Iron ore}
+  - {market: cmdty, asset: Wheat}
+  - {market: cmdty, asset: Corn}
+  - {market: cmdty, asset: Soybeans}
+  - {market: cmdty, asset: Sugar}
+  - {market: cmdty, asset: Coffee}
+  - {market: cmdty, asset: Cotton}
+  # Major currencies
+  - {market: fx_g10, asset: Euro}
+  - {market: fx_g10, asset: Japanese yen}
+  - {market: fx_g10, asset: British pound}
+  # Emerging-market currencies
+  - {market: fx_em, asset: Mexican peso}
+  - {market: fx_em, asset: Chinese yuan}

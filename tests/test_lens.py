@@ -116,3 +116,13 @@ def test_every_lens_driver_has_plain_words() -> None:
     for market in MARKETS:
         comps = get_universe(market).ensemble_components or ()
         assert set(comps) <= set(SIGNAL_WORDS), market
+
+
+def test_lean_words_follow_the_shown_percent() -> None:
+    from atlas.lens import _lean_words
+
+    assert _lean_words(0.524) == _lean_words(0.52) == "show no real lean on"
+    assert _lean_words(0.526) == "lean slightly toward"  # shown as 53%
+    assert _lean_words(0.475) == "show no real lean on"  # shown as 48%
+    assert _lean_words(0.404) == "lean clearly against"  # shown as 40%
+    assert _lean_words(0.6) == "lean clearly toward"
