@@ -33,6 +33,21 @@ AREAS: dict[str, str] = {
     "NOR": "Norway",
 }
 RATES_NAMES = {k: f"{v} 10Y government bond" for k, v in AREAS.items()}
+# Emerging markets with both an OECD 10-year and 3-month rate (India's 3-month rate starts in
+# 2011). The duration-8 approximation overstates price sensitivity at high yields (about 6.5
+# at 9%), so EM returns are approximate in level; the cross-sectional ranking is the target.
+EM_AREAS: dict[str, str] = {
+    "MEX": "Mexico",
+    "KOR": "South Korea",
+    "IND": "India",
+    "CHN": "China",
+    "POL": "Poland",
+    "HUN": "Hungary",
+    "CZE": "Czechia",
+    "ZAF": "South Africa",
+    "ISR": "Israel",
+}
+EM_RATES_NAMES = {k: f"{v} 10Y government bond" for k, v in EM_AREAS.items()}
 DURATION = 8.0
 PUBLICATION_LAG_MONTHS = 1
 
@@ -49,8 +64,8 @@ def _levels(store: PITStore, ids: list[str], col: str) -> pl.DataFrame:
     )
 
 
-def rates_panel(store: PITStore) -> pl.DataFrame:
-    ids = list(AREAS)
+def rates_panel(store: PITStore, areas: dict[str, str] | None = None) -> pl.DataFrame:
+    ids = list(areas or AREAS)
     y10 = _levels(store, [f"{a}.RATES.10Y" for a in ids], "y10")
     if y10.is_empty():
         raise ValueError("no 10Y yields — run `atlas ingest sdmx --agency oecd`")
@@ -179,4 +194,18 @@ RATES_FAMILIES: dict[str, list[SignalDef]] = {
     "curve_change": [curve_flattening(m) for m in (6, 12)],
     "policy_easing": [short_rate_fall(m) for m in (6, 12)],
     "flight_to_quality": [equity_weakness()],
+}
+
+
+def rates_em_panel(store: PITStore) -> pl.DataFrame:
+    return rates_panel(store, EM_AREAS)
+
+
+# Only 5 of the 9 EM areas have an OECD leading indicator (below the 6-asset minimum), so
+# the growth-slowdown signal is left out of the EM set.
+RATES_EM_SIGNALS: dict[str, SignalDef] = {
+    n: sg for n, sg in RATES_SIGNALS.items() if sg.family != "growth"
+}
+RATES_EM_FAMILIES: dict[str, list[SignalDef]] = {
+    k: v for k, v in RATES_FAMILIES.items() if k != "growth"
 }

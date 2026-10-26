@@ -22,6 +22,7 @@ from atlas.signals.country import (
     COUNTRY_USD_FAMILIES,
     COUNTRY_USD_SIGNALS,
     DEVELOPED,
+    WORLD,
     country_panel,
 )
 from atlas.signals.fx import (
@@ -36,7 +37,16 @@ from atlas.signals.fx import (
 )
 from atlas.signals.industry import FAMILIES, SIGNALS, SignalDef, research_panel
 from atlas.signals.library import GENERIC_FAMILIES, GENERIC_SIGNALS, with_macro_factors
-from atlas.signals.rates import RATES_FAMILIES, RATES_NAMES, RATES_SIGNALS, rates_panel
+from atlas.signals.rates import (
+    EM_RATES_NAMES,
+    RATES_EM_FAMILIES,
+    RATES_EM_SIGNALS,
+    RATES_FAMILIES,
+    RATES_NAMES,
+    RATES_SIGNALS,
+    rates_em_panel,
+    rates_panel,
+)
 
 INDUSTRY_COMPONENTS = (
     "mom_12_1",
@@ -57,6 +67,11 @@ FX_COMPONENTS = ("carry", "mom_12_1", "mom_3_0", "ltr_60_12")
 # --exclude-holdout`, 2026-10-25), then tested once on the holdout: carry (t 3.80, positive
 # IC in all four regimes) and its 12-month change (t 2.00). Momentum and 5-year reversal
 # were weak (|t| < 1) and are left out.
+# Chosen on the pre-2021 research window only (`atlas research gates --universe rates_em
+# --exclude-holdout`, 2026-10-26), then tested once on the holdout: the term spread (t 3.06,
+# positive IC in all four regimes, marginal ICIR +0.50) and yield vs its 5-year average
+# (value; t 0.80, marginal +0.10). Momentum and curve flattening had negative research ICs.
+RATES_EM_COMPONENTS = ("term_spread", "yield_vs_60m")
 FX_EM_COMPONENTS = ("carry", "carry_chg_12")
 RATES_COMPONENTS = ("term_spread", "mom_12_1", "yield_vs_60m", "cli_fall_6")
 
@@ -130,6 +145,17 @@ UNIVERSES: dict[str, Universe] = {
         "COUNTRY",
         COUNTRY_COMPONENTS,
     ),
+    "ctry_world": Universe(
+        "ctry_world",
+        "33 country equity markets, USD returns (OECD, ECB FX)",
+        lambda s: with_macro_factors(country_panel(s, usd=True, countries=WORLD), s),
+        COUNTRY_USD_SIGNALS,
+        COUNTRY_USD_FAMILIES,
+        COUNTRY_NAMES,
+        "equity_country",
+        "COUNTRY",
+        COUNTRY_COMPONENTS,
+    ),
     "ctry_dev_lcl": Universe(
         "ctry_dev_lcl",
         "9 developed equity markets, local-currency returns (OECD)",
@@ -173,6 +199,17 @@ UNIVERSES: dict[str, Universe] = {
         "rates",
         "RATES",
         RATES_COMPONENTS,
+    ),
+    "rates_em": Universe(
+        "rates_em",
+        "9 emerging-market 10-year government bonds, hedged, excess over cash (OECD)",
+        rates_em_panel,
+        RATES_EM_SIGNALS,
+        RATES_EM_FAMILIES,
+        EM_RATES_NAMES,
+        "rates",
+        "RATES",
+        RATES_EM_COMPONENTS,
     ),
     "cmdty": Universe(
         "cmdty",

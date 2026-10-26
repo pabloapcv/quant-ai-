@@ -282,7 +282,7 @@
     } catch (e) { failBox($('#lens-body'), e); }
   }
   async function pickMarket(id) {
-    const m = lensMarkets.find((x) => x.id === id) || lensMarkets[0];
+    const m = lensMarkets.find((x) => x.id === (id === 'ctry_usd' ? 'ctry_world' : id)) || lensMarkets[0];
     store.set('ramon_lens_market', m.id);
     $$('#lens-markets button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.m === m.id)));
     $('#lens-prompt').textContent = m.prompt;
@@ -330,7 +330,8 @@
 
   // ---------------------------------------------------------------- Watchlist
   // Per-browser convenience: the pinned items live in this browser only.
-  const watchList = () => { try { return JSON.parse(store.get('ramon_watchlist', '[]')) || []; } catch { return []; } };
+  // ctry_usd (14 markets) became ctry_world (33) on 2026-10-26: older pins move over
+  const watchList = () => { try { return (JSON.parse(store.get('ramon_watchlist', '[]')) || []).map((w) => (w.market === 'ctry_usd' ? { ...w, market: 'ctry_world' } : w)); } catch { return []; } };
   const isWatched = (m, a) => watchList().some((w) => w.market === m && w.asset === a);
   function toggleWatch(m, a) {
     const list = watchList();
@@ -361,7 +362,7 @@
 
   // ---------------------------------------------------------------- What if
   let PRESETS = [];
-  const UNIT_WORD = { ind12: 'the average US sector', ctry_usd: 'the average market', fx_g10: 'the average currency', fx_em: 'the average emerging-market currency', rates_dev: 'the average bond market', cmdty: 'the average commodity' };
+  const UNIT_WORD = { ind12: 'the average US sector', ctry_usd: 'the average market', ctry_world: 'the average market', fx_g10: 'the average currency', fx_em: 'the average emerging-market currency', rates_dev: 'the average bond market', rates_em: 'the average bond market', cmdty: 'the average commodity' };
   let lastPreset = null;
   async function loadPresets() {
     if (PRESETS.length) return;

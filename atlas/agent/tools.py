@@ -226,7 +226,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
             "its peers over 3 months, rank, what drives it), how it moved vs its peers in each "
             "one-click what-if event (oil, rates, dollar, market panic, inflation fears), what "
             "followed in the past periods most like today, recent price moves for commodities, "
-            "and how far to trust the lean. Markets: ind12 (US sectors), ctry_usd (stock "
+            "and how far to trust the lean. Markets: ind12 (US sectors), ctry_world (33 stock "
             "markets abroad, in USD), fx_g10 (major currencies vs USD), fx_em (emerging-market "
             "currencies vs USD), cmdty (commodities). Use an asset name exactly as listed; an "
             "unknown name returns the list."
@@ -235,7 +235,7 @@ TOOL_SPECS: list[dict[str, Any]] = [
             {
                 "market": {
                     "type": "string",
-                    "enum": ["ind12", "ctry_usd", "fx_g10", "fx_em", "cmdty"],
+                    "enum": ["ind12", "ctry_world", "fx_g10", "fx_em", "cmdty"],
                 },
                 "asset": {"type": "string", "description": "e.g. 'Retail and wholesale', 'Copper'"},
             },

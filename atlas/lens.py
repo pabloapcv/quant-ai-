@@ -20,7 +20,7 @@ MARKETS: dict[str, dict[str, str]] = {
         "avg": "the average sector",
         "prompt": "My business is closest to",
     },
-    "ctry_usd": {
+    "ctry_world": {
         "label": "Stock market abroad",
         "noun": "market",
         "peers": "the other markets",

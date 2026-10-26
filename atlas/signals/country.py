@@ -45,7 +45,34 @@ COUNTRIES: dict[str, tuple[str, str]] = {
     "MEX": ("Mexico", "MXN"),
     "ESP": ("Spain", "EUR"),
 }
-COUNTRY_NAMES = {k: v[0] for k, v in COUNTRIES.items()}
+# The wide universe (ctry_world): OECD share prices since 1999 converted with ECB month-end
+# rates. Chile and Colombia have OECD prices but no ECB rate, so they are left out. Most of
+# these have no OECD leading indicator any more (only IDN, TUR, ZAF): their CLI signals are
+# simply missing and the ensemble uses the components that exist.
+EXTRA_COUNTRIES: dict[str, tuple[str, str]] = {
+    "NLD": ("Netherlands", "EUR"),
+    "BEL": ("Belgium", "EUR"),
+    "AUT": ("Austria", "EUR"),
+    "FIN": ("Finland", "EUR"),
+    "IRL": ("Ireland", "EUR"),
+    "PRT": ("Portugal", "EUR"),
+    "GRC": ("Greece", "EUR"),
+    "CHE": ("Switzerland", "CHF"),
+    "SWE": ("Sweden", "SEK"),
+    "NOR": ("Norway", "NOK"),
+    "DNK": ("Denmark", "DKK"),
+    "NZL": ("New Zealand", "NZD"),
+    "POL": ("Poland", "PLN"),
+    "HUN": ("Hungary", "HUF"),
+    "CZE": ("Czechia", "CZK"),
+    "ZAF": ("South Africa", "ZAR"),
+    "ISR": ("Israel", "ILS"),
+    "TUR": ("Turkey", "TRY"),
+    "IDN": ("Indonesia", "IDR"),
+}
+ALL_COUNTRIES = {**COUNTRIES, **EXTRA_COUNTRIES}
+WORLD = tuple(ALL_COUNTRIES)
+COUNTRY_NAMES = {k: v[0] for k, v in ALL_COUNTRIES.items()}
 # Local-currency nominal returns are only comparable across low-inflation economies: with
 # Brazil or Mexico in the set, decades of high inflation dominate the cross-section (they
 # look like winners, and inflation persistence fakes momentum). The local-currency universe
@@ -62,9 +89,10 @@ def _levels(store: PITStore, ids: list[str]) -> pl.DataFrame:
     return store.as_of(ids, datetime.now(UTC)).select("series_id", "event_time", "value")
 
 
-def _usd_per_local(store: PITStore) -> pl.DataFrame:
+def _usd_per_local(store: PITStore, countries: tuple[str, ...] | None = None) -> pl.DataFrame:
     """date, currency, usd_per_local (end of month) via EUR crosses."""
-    curs = sorted({c for _, c in COUNTRIES.values()} - {"EUR", "USD"})
+    ids = countries or tuple(COUNTRIES)
+    curs = sorted({ALL_COUNTRIES[c][1] for c in ids} - {"EUR", "USD"})
     fx = _levels(store, [f"FX.EUR{c}.EOP" for c in ["USD", *curs]])
     wide = fx.pivot(index="event_time", on="series_id", values="value").sort("event_time")
     if "FX.EURUSD.EOP" not in wide.columns:
@@ -117,8 +145,8 @@ def country_panel(
         )
     )
     if usd:
-        cur = pl.DataFrame({"asset": ids, "currency": [COUNTRIES[c][1] for c in ids]})
-        fx = _usd_per_local(store)
+        cur = pl.DataFrame({"asset": ids, "currency": [ALL_COUNTRIES[c][1] for c in ids]})
+        fx = _usd_per_local(store, tuple(ids))
         df = (
             df.join(cur, on="asset", how="left")
             .join(fx, on=["date", "currency"], how="left")
