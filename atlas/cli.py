@@ -888,21 +888,75 @@ def research_list(universe: UniverseOpt = "ind49") -> None:
     typer.echo(f"\nfamilies: {', '.join(uni.families)}   universes: {', '.join(UNIVERSES)}")
 
 
+def _load_signal_file(path: Path) -> dict[str, Any]:
+    """Import a researcher's signal file: ``SIGNAL`` (required) and ``FAMILY`` (optional)."""
+    import importlib.util
+
+    from atlas.signals.industry import SignalDef
+
+    if not path.exists():
+        raise typer.BadParameter(f"no such file: {path}")
+    spec = importlib.util.spec_from_file_location(f"user_signal_{path.stem}", path)
+    if spec is None or spec.loader is None:
+        raise typer.BadParameter(f"cannot import {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    sig = getattr(module, "SIGNAL", None)
+    if not isinstance(sig, SignalDef):
+        raise typer.BadParameter(f"{path} must define SIGNAL = SignalDef(...)")
+    family = list(getattr(module, "FAMILY", []) or [])
+    if not all(isinstance(v, SignalDef) for v in family):
+        raise typer.BadParameter("FAMILY must be a list of SignalDef")
+    return {"signal": sig, "family": family}
+
+
 @research_app.command("signal")
 def research_signal(
-    name: str,
+    name: Annotated[str | None, typer.Argument(help="Signal name (omit with --file)")] = None,
     universe: UniverseOpt = "ind49",
     start: StartOpt = None,
     cost_bps: CostOpt = 10.0,
     quantiles: QuantOpt = 5,
     as_json: Annotated[bool, typer.Option("--json")] = False,
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            "--file",
+            help="A Python file defining SIGNAL (a SignalDef) and optionally FAMILY (a list of "
+            "variants, for PBO); see docs/examples/my_signal.py",
+        ),
+    ] = None,
 ) -> None:
-    """Tearsheet for one signal: IC, decay, quantile spread, net Sharpe, PSR/DSR, regimes."""
+    """Tearsheet for one signal: IC, decay, quantile spread, net Sharpe, PSR/DSR, regimes.
+
+    With ``--file``, the signal comes from your own Python file; the run is logged as a trial
+    like any other, and its marginal contribution to an equal-weight ensemble of the
+    universe's signals is reported (plus PBO across ``FAMILY`` when the file defines one).
+    """
+    import dataclasses
+
+    from atlas.signals.research import ensemble_marginal_icir, signal_panel
+
     ctx = _context(universe, start, cost_bps, quantiles)
-    if name not in ctx.signals:
+    custom = None
+    if file is not None:
+        custom = _load_signal_file(file)
+        name = custom["signal"].name
+        ctx = dataclasses.replace(ctx, signals={**ctx.signals, name: custom["signal"]})
+    if name is None or name not in ctx.signals:
         raise typer.BadParameter(f"unknown signal {name!r}; see `atlas research list`")
     rep = run_signal(ctx.signals[name], ctx)
     summary = rep.summary()
+    if custom is not None:
+        rankings = {n: sg for n, sg in ctx.signals.items() if sg.ranking_of is None}
+        ens, marginal = ensemble_marginal_icir(
+            {n: signal_panel(sg, ctx) for n, sg in rankings.items()}
+        )
+        summary["ensemble_icir_with_it"] = ens
+        summary["marginal_icir"] = marginal.get(name)
+        if custom["family"]:
+            reps = [run_signal(v, ctx) for v in custom["family"]]
+            summary["family_pbo"] = family_pbo(reps)[0] if len(reps) >= 2 else None
     if as_json:
         extra = {
             "ic_decay": rep.ic_decay,
