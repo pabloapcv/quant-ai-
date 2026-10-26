@@ -100,6 +100,8 @@ def test_tool_specs_are_strict_ready() -> None:
         "search_documents",
         "get_fomc_statement",
         "get_ecb_statement",
+        "get_business_lens",
+        "get_key_prices",
     } == names
     for t in TOOL_SPECS:
         schema = t["input_schema"]

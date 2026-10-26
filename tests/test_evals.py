@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 def test_golden_set_is_well_formed() -> None:
     cases = load_cases(REPO / "config" / "evals" / "golden.yaml")
-    assert len(cases) == 172
+    assert len(cases) == 176
     tools = {t["name"] for t in TOOL_SPECS}
     for c in cases:
         assert set(c.expect_tools) <= tools, c.id

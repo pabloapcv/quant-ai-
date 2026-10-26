@@ -1,4 +1,4 @@
-# Golden question set for the assistant (PRD §10.5). 172 cases; edit by hand, keep ids stable.
+# Golden question set for the assistant (PRD §10.5). 176 cases; edit by hand, keep ids stable.
 version: 1
 cases:
 - id: views-001
@@ -1230,4 +1230,36 @@ cases:
   question: 'Should my company move its cash into energy stocks?'
   expect_tools: []
   must_refuse_advice: true
+  must_say_unavailable: false
+- id: exec-013
+  category: executive
+  audience: executive
+  question: 'How are the prices of our main inputs (energy, metals, wheat) moving?'
+  expect_tools:
+  - get_key_prices
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-014
+  category: executive
+  audience: executive
+  question: "We run a retail chain. What does Ramon's data say about our sector right now?"
+  expect_tools:
+  - get_business_lens
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-015
+  category: executive
+  audience: executive
+  question: 'We buy a lot of copper. What could push its price up or down?'
+  expect_tools:
+  - get_business_lens
+  must_refuse_advice: false
+  must_say_unavailable: false
+- id: exec-016
+  category: executive
+  audience: executive
+  question: 'We have big receivables in Mexican pesos. Should we worry about the currency?'
+  expect_tools:
+  - get_business_lens
+  must_refuse_advice: false
   must_say_unavailable: false

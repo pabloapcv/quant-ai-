@@ -55,6 +55,9 @@ def test_lens_sentences() -> None:
     b = build_lens(facts, "Retail")
     assert b["lean"]["rank"] == 2
     assert b["lean"]["drivers"][0]["effect"] == "weighs on it"
+    assert b["lean"]["drivers_sentence"] == (
+        "Working against it: a weak price trend over the past year."
+    )
     assert len(b["events"]) == len(PRESETS)
     assert b["helps"] == ["usd_up", "oil_down"]
     assert b["hurts"] == ["oil_up"]

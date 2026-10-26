@@ -79,6 +79,7 @@
     get_series: 'Read economic data', get_regime: 'Read the economy', find_analogs: 'Compared with history',
     run_scenario: 'Ran a what-if', search_documents: 'Searched central-bank texts',
     get_ecb_statement: 'Read ECB statement', get_fomc_statement: 'Read Fed statement',
+    get_business_lens: 'Looked at your business', get_key_prices: 'Checked key prices',
   };
 
   // ---------------------------------------------------------------- tabs
@@ -310,9 +311,9 @@
         const w = (Math.abs(e.vs_average) / max) * 50;
         return `<div class="brow"><span class="name">${esc(e.label)}</span><div class="track"><div class="fill ${e.vs_average >= 0 ? 'up' : 'down'}" style="${e.vs_average >= 0 ? `left:50%;width:${w}%` : `left:${50 - w}%;width:${w}%`}"></div></div><span class="val ${sgn(e.vs_average)}">${spct(e.vs_average)}</span></div>`;
       }).join('');
-      const drv = L.lean.drivers.map((d) => `${esc(d.what)} ${esc(d.effect)}`).join('; ');
+      const drv = esc(L.lean.drivers_sentence || '');
       body.innerHTML = `<ul class="changes">${L.summary.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
-        ${drv ? `<p class="small muted">What drives the lean: ${drv}.</p>` : ''}
+        ${drv ? `<p class="small muted">What drives the lean. ${drv}</p>` : ''}
         <div class="k small muted" style="margin-top:12px">How ${esc(asset)} moved vs ${esc(L.avg)} in the same month, by event</div>
         <div class="bars">${bars}</div>
         <div class="callout">${esc(L.trust_note)}</div>

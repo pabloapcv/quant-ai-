@@ -220,6 +220,40 @@ TOOL_SPECS: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "get_business_lens",
+        "description": (
+            "Plain-language view of one asset for a business: its model lean (chance of beating "
+            "its peers over 3 months, rank, what drives it), how it moved vs its peers in each "
+            "one-click what-if event (oil, rates, dollar, market panic, inflation fears), what "
+            "followed in the past periods most like today, recent price moves for commodities, "
+            "and how far to trust the lean. Markets: ind12 (US sectors), ctry_usd (stock "
+            "markets abroad, in USD), fx_g10 (major currencies vs USD), fx_em (emerging-market "
+            "currencies vs USD), cmdty (commodities). Use an asset name exactly as listed; an "
+            "unknown name returns the list."
+        ),
+        "input_schema": _schema(
+            {
+                "market": {
+                    "type": "string",
+                    "enum": ["ind12", "ctry_usd", "fx_g10", "fx_em", "cmdty"],
+                },
+                "asset": {"type": "string", "description": "e.g. 'Retail and wholesale', 'Copper'"},
+            },
+            ["market", "asset"],
+        ),
+    },
+    {
+        "name": "get_key_prices",
+        "description": (
+            "Moves over the past 3 and 12 months in prices that matter to businesses: oil, US "
+            "and European natural gas, copper, aluminum, wheat, gold (IMF monthly averages, "
+            "fractions), the broad US dollar (fraction), and the 10-year Treasury yield, 30-year "
+            "mortgage rate and Baa corporate spread (levels in percent, changes in percentage "
+            "points), each with its latest date and a big-move flag."
+        ),
+        "input_schema": _schema({}, []),
+    },
+    {
         "name": "get_fomc_statement",
         "description": (
             "The FOMC statement in force at a date (the latest released on or before it): "
@@ -255,6 +289,8 @@ class ToolKit:
             "search_documents": self.search_documents,
             "get_fomc_statement": self.get_fomc_statement,
             "get_ecb_statement": self.get_ecb_statement,
+            "get_business_lens": self.get_business_lens,
+            "get_key_prices": self.get_key_prices,
         }
         self._text_index: BM25Index | None = None
 
@@ -471,6 +507,32 @@ class ToolKit:
                 }
                 for r in tail.iter_rows(named=True)
             ],
+        }
+
+    def get_business_lens(self, market: str, asset: str) -> dict[str, Any]:
+        from atlas.lens import MARKETS, assets, build_lens, market_facts
+        from atlas.webcache import disk_cached
+
+        if market not in MARKETS:
+            return {"error": f"unknown market {market!r}; one of {', '.join(MARKETS)}"}
+        facts = disk_cached(self.data_dir, f"lens-{market}", lambda: market_facts(self, market))
+        try:
+            return build_lens(facts, asset)
+        except KeyError:
+            return {
+                "error": f"no {MARKETS[market]['noun']} named {asset!r}",
+                "assets": assets(facts),
+            }
+
+    def get_key_prices(self) -> dict[str, Any]:
+        from atlas.briefing import _price_series, price_moves
+
+        return {
+            "prices": price_moves(_price_series(self)),
+            "conventions": {
+                "change_3m / change_12m": "fraction for prices; percentage points for rates",
+                "big": "3m move of 15%+ (0.5 pt for rates) or 12m move of 25%+ (1 pt)",
+            },
         }
 
     def get_regime(self, as_of: str) -> dict[str, Any]:

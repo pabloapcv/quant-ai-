@@ -155,8 +155,9 @@ def create_app(
     briefing_lock = threading.Lock()
 
     def latest_run_name() -> str:
-        runs = sorted((data_dir / "runs").glob("2*.json"))
-        return runs[-1].name if runs else ""
+        from atlas.webcache import latest_run_name as name
+
+        return name(data_dir)
 
     @app.get("/v1/briefing", dependencies=guarded)
     def briefing() -> dict[str, Any]:
@@ -186,26 +187,11 @@ def create_app(
 
     facts_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
     facts_lock = threading.Lock()
-    disk_cache = data_dir / "cache" / "web"
 
     def from_disk(name: str, build: Any, variant: str = "") -> dict[str, Any]:
-        """``build()`` once per day and pipeline run, kept on disk so restarts reuse it."""
-        stamp = f"{datetime.now(UTC).date()}_{latest_run_name().removesuffix('.json')}{variant}"
-        path = disk_cache / f"{stamp}_{name}.json"
-        if path.exists():
-            try:
-                cached: dict[str, Any] = json.loads(path.read_text())
-                return cached
-            except ValueError:
-                pass  # half-written file: rebuild
-        value: dict[str, Any] = build()
-        disk_cache.mkdir(parents=True, exist_ok=True)
-        for old in disk_cache.glob(f"*_{name}.json"):  # earlier days / runs
-            old.unlink(missing_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(jsonsafe.dumps(value))
-        tmp.replace(path)
-        return value
+        from atlas.webcache import disk_cached
+
+        return disk_cached(data_dir, name, build, variant)
 
     def market_facts(market: str) -> dict[str, Any]:
         """Shared per-market work for the lenses (~15 s), once per day and pipeline run."""

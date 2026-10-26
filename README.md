@@ -83,7 +83,7 @@ flowchart LR
     B --> C["Fixed models<br/>economy reading, recession risk,<br/>market rankings, scenarios, analogs"]
     C --> D["Frozen daily views<br/>scored later against<br/>what actually happened"]
     C --> E["Briefing, Your business,<br/>What if (rule-based text)"]
-    C --> F["Claude, via 13 data tools"]
+    C --> F["Claude, via 15 data tools"]
     F --> G["Number checker<br/>every figure must match<br/>a tool result"]
     G --> H["Ask Ramon,<br/>weekly note"]
 ```
@@ -102,7 +102,7 @@ flowchart LR
    horizon has passed, they are scored against what actually happened. This is the live
    track record, and it cannot be edited after the fact.
 5. **Explain.** The Briefing and What if pages turn the numbers into sentences with fixed
-   rules. The chat uses Claude, which can only see the engine's results through 13 data
+   rules. The chat uses Claude, which can only see the engine's results through 15 data
    tools, and an automatic checker compares every number in its answer with those results.
 
 ---
@@ -157,7 +157,7 @@ specification is in [PRD.md](PRD.md).
 | **Frozen views** | Each month's views are written once and later scored against reality; they cannot be edited. |
 | **Reproducibility** | `ramon reproduce <view_id>` rebuilds any published view from its pinned data snapshot and confirms it matches. |
 | **Strict promotion gates** | A signal is promoted only if it passes six statistical tests, including corrections for having tried many ideas. |
-| **Answer testing** | A set of 172 test questions is scored on number accuracy, use of the right data, and an independent AI grader's view of correctness, honesty about uncertainty and clarity. Executive-style answers also lose points for jargon. |
+| **Answer testing** | A set of 176 test questions is scored on number accuracy, use of the right data, and an independent AI grader's view of correctness, honesty about uncertainty and clarity. Executive-style answers also lose points for jargon. |
 | **No advice** | The assistant declines personalized investment advice and says when something is not available rather than guessing. |
 
 ---
@@ -348,7 +348,7 @@ atlas/                Python package (the engine)
   backtest/           backtesting, statistical gates, the locked holdout
   views/              publishing, freezing, scoring and reproducing views
   text/               Fed and ECB documents, search, tone readings
-  agent/              Claude assistant, its 13 tools, number checker, evals, weekly note
+  agent/              Claude assistant, its 15 tools, number checker, evals, weekly note
   briefing.py         rule-based Briefing
   lens.py             Your business views and the what-if events
   api.py, web/        HTTP API and the web app
@@ -357,7 +357,7 @@ atlas/                Python package (the engine)
 config/               series catalog, alert rules, test questions
 deploy/launchd/       scheduled-job templates
 docs/                 runbooks, research status, signal cards
-tests/                290 automated tests, including the look-ahead leakage suite
+tests/                291 automated tests, including the look-ahead leakage suite
 data/                 data, reports and logs (created locally, never committed)
 PRD.md                full product and technical specification
 ```
@@ -366,10 +366,10 @@ PRD.md                full product and technical specification
 
 ## 13. Quality and testing
 
-- **Automated tests:** 290 tests run on every change in CI (Python 3.12 and 3.13), along with
+- **Automated tests:** 291 tests run on every change in CI (Python 3.12 and 3.13), along with
   linting, formatting and type checks. The look-ahead leakage suite is part of the run and
   blocks merges.
-- **Assistant evaluation:** `ramon eval run` asks the 172 test questions and compares the
+- **Assistant evaluation:** `ramon eval run` asks the 176 test questions and compares the
   score with a saved baseline; a drop of more than 3 points counts as a regression.
 - **Run the checks locally:**
 

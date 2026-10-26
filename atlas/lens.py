@@ -109,23 +109,67 @@ PRESETS: list[dict[str, Any]] = [
     },
 ]
 
-SIGNAL_WORDS = {
-    "mom_12_1": "its price trend over the past year",
-    "mom_6_1": "its price trend over the past six months",
-    "mom_3_0": "its move over the past three months",
-    "resmom_ff3_36": "its own trend, after removing broad market moves",
-    "value_log_bm": "its valuation (how cheap it is relative to its book value)",
-    "low_vol_36": "how steady its returns have been",
-    "ltr_60_12": "its five-year performance (long runs tend to partly reverse)",
-    "reversal_1m": "last month's move (short moves tend to partly reverse)",
-    "yield_fall_12": "the fall in its bond yields over the past year",
-    "cli_chg_6": "the six-month change in its economy's leading indicator",
-    "cli_level": "the level of its economy's leading indicator",
-    "carry": "its interest-rate advantage over other currencies",
-    "carry_chg_12": "the change in its interest-rate advantage over the past year",
-    "term_spread": "how steep its yield curve is",
-    "yield_vs_60m": "its bond yield compared with its five-year average",
-    "cli_fall_6": "a slowdown in its economy's leading indicator",
+# What a component's contribution means, in words: (when it helps, when it weighs on the asset).
+# Ensemble weights are non-negative, so the contribution's sign is the signal's own direction.
+SIGNAL_WORDS: dict[str, tuple[str, str]] = {
+    "mom_12_1": (
+        "a strong price trend over the past year",
+        "a weak price trend over the past year",
+    ),
+    "mom_6_1": (
+        "a strong price trend over the past six months",
+        "a weak price trend over the past six months",
+    ),
+    "mom_3_0": (
+        "a strong move over the past three months",
+        "a weak move over the past three months",
+    ),
+    "resmom_ff3_36": (
+        "a strong trend of its own, after removing broad market moves",
+        "a weak trend of its own, after removing broad market moves",
+    ),
+    "value_log_bm": (
+        "it looks cheap relative to its book value",
+        "it looks expensive relative to its book value",
+    ),
+    "low_vol_36": ("its returns have been steady", "its returns have been volatile"),
+    "ltr_60_12": (
+        "it has lagged over the past five years (long runs tend to partly reverse)",
+        "it has run up over the past five years (long runs tend to partly reverse)",
+    ),
+    "reversal_1m": (
+        "it fell last month (short moves tend to partly reverse)",
+        "it rose last month (short moves tend to partly reverse)",
+    ),
+    "yield_fall_12": (
+        "its bond yields fell over the past year",
+        "its bond yields rose over the past year",
+    ),
+    "cli_chg_6": (
+        "its economy's leading indicator improved over six months",
+        "its economy's leading indicator worsened over six months",
+    ),
+    "cli_level": (
+        "its economy's leading indicator is high",
+        "its economy's leading indicator is low",
+    ),
+    "carry": (
+        "it pays more interest than other currencies",
+        "it pays less interest than other currencies",
+    ),
+    "carry_chg_12": (
+        "its interest-rate advantage grew over the past year",
+        "its interest-rate advantage shrank over the past year",
+    ),
+    "term_spread": ("its yield curve is steep", "its yield curve is flat"),
+    "yield_vs_60m": (
+        "its bond yield is high versus its five-year average",
+        "its bond yield is low versus its five-year average",
+    ),
+    "cli_fall_6": (
+        "its economy's leading indicator slowed",
+        "its economy's leading indicator picked up",
+    ),
 }
 
 
@@ -185,7 +229,9 @@ def build_lens(facts: dict[str, Any], asset: str) -> dict[str, Any]:
     v = ranked[names.index(asset)]
     drivers = [
         {
-            "what": SIGNAL_WORDS.get(d["signal"], d["signal"]),
+            "what": SIGNAL_WORDS.get(d["signal"], (d["signal"], d["signal"]))[
+                0 if d["contribution"] > 0 else 1
+            ],
             "effect": "helps" if d["contribution"] > 0 else "weighs on it",
             "signal": d["signal"],
             "contribution": d["contribution"],
@@ -193,6 +239,16 @@ def build_lens(facts: dict[str, Any], asset: str) -> dict[str, Any]:
         for d in v.get("top_drivers", [])[:2]
         if d["contribution"] != 0
     ]
+    pro = [d["what"] for d in drivers if d["effect"] == "helps"]
+    con = [d["what"] for d in drivers if d["effect"] != "helps"]
+    drivers_sentence = " ".join(
+        part
+        for part in (
+            f"Working for it: {' and '.join(pro)}." if pro else "",
+            f"Working against it: {' and '.join(con)}." if con else "",
+        )
+        if part
+    )
     lean = {
         "as_of": views["as_of_month"],
         "chance_beat_peers": v["prob_beat_median"],
@@ -201,6 +257,7 @@ def build_lens(facts: dict[str, Any], asset: str) -> dict[str, Any]:
         "of": len(names),
         "confidence": v["confidence"],
         "drivers": drivers,
+        "drivers_sentence": drivers_sentence,
     }
 
     events = []
