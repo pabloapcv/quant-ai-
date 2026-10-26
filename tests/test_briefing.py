@@ -182,3 +182,18 @@ def test_cooldown_repeats_hidden() -> None:
     ]
     b = build_briefing(Kit(), alerts, today=date(2026, 10, 26))
     assert b["alerts"] == [{"date": "2026-10-25", "message": "Wheat rose"}]
+
+
+def test_digest_is_short_and_plain() -> None:
+    from atlas.briefing import DIGEST_LIMIT, to_digest
+
+    b = build_briefing(MovedKit(), [], today=date(2026, 10, 22))
+    text = to_digest(b, date(2026, 10, 22), [{"asset": "Copper", "headline": "no real lean"}])
+    assert text.startswith("Growth is strong")
+    assert "- Copper: no real lean" in text
+    assert "not investment advice" in text
+    long = to_digest(
+        b, date(2026, 10, 22), [{"asset": f"A{i}", "headline": "x" * 80} for i in range(80)]
+    )
+    assert len(long) <= DIGEST_LIMIT
+    assert long.endswith("(see the full note)")

@@ -1462,7 +1462,7 @@ def pipeline_track() -> None:
 
 
 # ---------------------------------------------------------------------------- report
-def _write_briefing() -> Path:
+def _write_briefing(send: bool = False) -> Path:
     import yaml
 
     from atlas.agent.tools import ToolKit
@@ -1480,13 +1480,36 @@ def _write_briefing() -> Path:
     out = s.data_dir / "reports" / today.isoformat()
     out.mkdir(parents=True, exist_ok=True)
     (out / "briefing.md").write_text(to_markdown(b, today, watch))
+    if send:
+        from atlas.alerts import AlertConfig, send_text
+        from atlas.briefing import to_digest
+
+        cfg_path = s.config_dir / "alerts.yaml"
+        channels = AlertConfig.load(cfg_path).channels if cfg_path.exists() else None
+        result = (
+            send_text(channels, to_digest(b, today, watch), title=f"Ramon briefing {today}")
+            if channels
+            else {}
+        )
+        (out / "delivery.json").write_text(
+            jsonsafe.dumps({"sent_at": datetime.now(UTC).isoformat(), "channels": result})
+        )
+        typer.echo(
+            "sent: " + ", ".join(f"{k} {v}" for k, v in result.items())
+            if result
+            else "not sent: no ntfy topic or Slack webhook configured (config/alerts.yaml)"
+        )
     return out / "briefing.md"
 
 
 @report_app.command("briefing")
-def report_briefing() -> None:
+def report_briefing(
+    send: Annotated[
+        bool, typer.Option("--send", help="Also send a short digest to the alert channels")
+    ] = False,
+) -> None:
     """Plain-language executive briefing (fixed rules, no Claude calls) to data/reports/<date>/."""
-    typer.echo(f"wrote {_write_briefing()}")
+    typer.echo(f"wrote {_write_briefing(send)}")
 
 
 @report_app.command("weekly")
@@ -1495,12 +1518,20 @@ def report_weekly(
         bool, typer.Option("--dry-run", help="Gather facts only; no Claude calls")
     ] = False,
     model: Annotated[str | None, typer.Option(help="Claude model id")] = None,
+    no_send: Annotated[
+        bool, typer.Option("--no-send", help="Do not send the briefing digest")
+    ] = False,
 ) -> None:
-    """Weekly research note: engine facts -> Claude writer -> red team -> grounding check."""
+    """Weekly research note: engine facts -> Claude writer -> red team -> grounding check.
+
+    Also writes the executive briefing and sends its digest to the alert channels (ntfy,
+    Slack) when configured.
+    """
     from atlas.agent.report import Report, ReportWriter, gather_facts, save
     from atlas.agent.tools import ToolKit
 
-    typer.echo(f"wrote {_write_briefing()}")  # free and always written, even on a budget stop
+    # free and always written (and sent), even when the Claude note stops on the budget
+    typer.echo(f"wrote {_write_briefing(send=not no_send)}")
     s = get_settings()
     reports_dir = s.data_dir / "reports"
     today = datetime.now(UTC).date()

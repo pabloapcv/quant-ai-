@@ -193,3 +193,24 @@ def test_price_move_alert() -> None:
     assert a.message == "Wheat prices rose 25% over the past 3 months (latest September 2026)."
     assert a.key == "price_move_3m:CMDTY.WHEAT:up"
     assert check_price_move(rule, "CMDTY.WHEAT", "Wheat", obs[:-1]) == []
+
+
+def test_send_text_posts_to_ntfy_and_slack(monkeypatch: pytest.MonkeyPatch) -> None:
+    from atlas.alerts import Channels, send_text
+
+    seen: list[tuple[str, bytes, dict[str, str]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((str(request.url), request.content, dict(request.headers)))
+        return httpx.Response(200)
+
+    monkeypatch.setenv("RAMON_TEST_SLACK", "https://hooks.example/abc")
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    ch = Channels(ntfy_topic_url="https://ntfy.example/ramon", slack_webhook_env="RAMON_TEST_SLACK")
+    out = send_text(ch, "hello", title="Ramon briefing", client=client)
+    assert out == {"ntfy": "ok", "slack": "ok"}
+    assert seen[0][0] == "https://ntfy.example/ramon"
+    assert seen[0][1] == b"hello"
+    assert seen[0][2]["title"] == "Ramon briefing"
+    assert b"*Ramon briefing*" in seen[1][1]
+    assert send_text(Channels(slack_webhook_env=""), "x") == {}

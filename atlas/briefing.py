@@ -414,3 +414,37 @@ def to_markdown(
         lines.append("")
     lines.append("_Research based on public data and historical patterns, not investment advice._")
     return "\n".join(lines) + "\n"
+
+
+DIGEST_LIMIT = 3500  # ntfy's message limit is 4 KB
+
+
+def to_digest(b: dict[str, Any], as_of: date, watchlist: list[dict[str, Any]] | None = None) -> str:
+    """A short plain-text version of the briefing for a phone or chat message."""
+    lines = []
+    e = b.get("economy")
+    if e:
+        lines.append(e["sentence"])
+    changed = (b.get("what_changed") or {}).get("items") or []
+    if changed:
+        lines += ["", "What changed:"] + [f"- {t}" for t in changed[:5]]
+    big = [p for p in b.get("prices") or [] if p["big"]]
+    if big:
+        lines += ["", "Big price moves (past year):"]
+        lines += [f"- {p['name']}: {_fmt_move(p['change_12m'], p['kind'])}" for p in big[:8]]
+    banks = [c["headline"] for c in b.get("central_banks") or [] if c.get("meeting_date")]
+    if banks:
+        lines += ["", "Central banks:"] + [f"- {h}" for h in banks]
+    if watchlist:
+        lines += ["", "Watchlist:"]
+        lines += [f"- {w['asset']}: {w.get('headline') or 'not available'}" for w in watchlist]
+    if b.get("alerts"):
+        lines += ["", "Warnings:"] + [f"- {a['message']}" for a in b["alerts"][:4]]
+    lines += [
+        "",
+        "Research, not investment advice. Full note: briefing.md for " + as_of.isoformat(),
+    ]
+    text = "\n".join(lines)
+    if len(text) > DIGEST_LIMIT:
+        text = text[: DIGEST_LIMIT - 30].rsplit("\n", 1)[0] + "\n- … (see the full note)"
+    return text

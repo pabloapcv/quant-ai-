@@ -415,21 +415,30 @@ def dispatch(
 
 
 def _deliver(channels: Channels, alert: Alert, client: httpx.Client | None) -> dict[str, str]:
+    return send_text(channels, alert.message, client=client)
+
+
+def send_text(
+    channels: Channels, text: str, *, title: str = "", client: httpx.Client | None = None
+) -> dict[str, str]:
+    """Post ``text`` to every configured channel (ntfy, Slack); {} when none is configured."""
     targets: dict[str, tuple[str, dict[str, Any]]] = {}
     if channels.ntfy_topic_url:
-        targets["ntfy"] = (channels.ntfy_topic_url, {"content": alert.message.encode()})
+        headers = {"Title": title} if title else {}
+        targets["ntfy"] = (channels.ntfy_topic_url, {"content": text.encode(), "headers": headers})
     slack = os.environ.get(channels.slack_webhook_env, "") if channels.slack_webhook_env else ""
     if slack:
-        targets["slack"] = (slack, {"json": {"text": f"Ramon: {alert.message}"}})
+        body = f"*{title}*\n{text}" if title else f"Ramon: {text}"
+        targets["slack"] = (slack, {"json": {"text": body}})
     if not targets:
         return {}
     own = client is None
     http = client or httpx.Client(timeout=10.0)
     out: dict[str, str] = {}
     try:
-        for name, (url, body) in targets.items():
+        for name, (url, kwargs) in targets.items():
             try:
-                r = http.post(url, **body)
+                r = http.post(url, **kwargs)
                 out[name] = "ok" if r.is_success else f"http {r.status_code}"
             except httpx.HTTPError as exc:
                 out[name] = f"error: {type(exc).__name__}"
