@@ -56,3 +56,27 @@ def test_reproduce_reports_broken_snapshot(tmp_path: Path) -> None:
     rep = reproduce(data, view_id, current_sha="abc123")
     assert rep.snapshot_problems
     assert not rep.exact
+
+
+def test_views_frozen_before_context_fields_still_reproduce(tmp_path: Path) -> None:
+    data = tmp_path / "data"
+    view_id = _freeze(data)
+    path = next((data / "gold" / "views" / "ctry_dev_lcl" / "3M").glob("*.json"))
+    old = json.loads(path.read_text())
+    for v in old:  # as written before regime_context / historical_analogs / risks existed
+        for k in ("regime_context", "historical_analogs", "risks"):
+            v.pop(k, None)
+    path.write_text(json.dumps(old))
+    rep = reproduce(data, view_id, current_sha="abc123")
+    assert rep.matched == rep.total
+    assert rep.total > 0
+
+
+def test_context_absent_without_macro_data(tmp_path: Path) -> None:
+    from atlas.views.reproduce import with_context
+
+    data = tmp_path / "data"
+    store = _country_store(data)  # country prices only: no US macro series
+    _, views, _ = compute_views(store, data, "ctry_dev_lcl", 3)
+    assert all(v.regime_context is None and v.risks == [] for v in views)
+    assert with_context([], store, "ctry_dev_lcl") == []

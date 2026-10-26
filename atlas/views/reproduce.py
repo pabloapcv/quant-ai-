@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+import structlog
 
 from atlas.backtest.trials import TrialLog
 from atlas.models.expected_returns.ensemble import EnsembleConfig, EnsembleRun, walk_forward
@@ -33,6 +34,8 @@ from atlas.signals.universes import get_universe
 from atlas.views.models import CHAMPION, all_versions, model_options, views_root
 from atlas.views.publish import _comparable, build_views
 from atlas.views.schema import View
+
+log = structlog.get_logger(__name__)
 
 
 def compute_views(
@@ -67,7 +70,26 @@ def compute_views(
     )
     run = walk_forward(ctx, cfg)
     views = build_views(run, universe, as_of, code_sha=code_sha, snapshot_id=snapshot_id)
-    return run, views, ctx.panel
+    return run, with_context(views, store, universe), ctx.panel
+
+
+def with_context(views: list[View], store: PITStore, universe: str) -> list[View]:
+    """Attach regime, analogs and risks (PRD §3.2); views stay usable if that fails."""
+    from atlas.views.context import view_context
+
+    if not views:
+        return views
+    try:
+        ctx = view_context(store, universe, views[0].as_of)
+    except (ValueError, KeyError) as exc:
+        log.warning("views.context_failed", universe=universe, error=str(exc))
+        return views
+    prefix = get_universe(universe).asset_id_prefix
+    by_id = {f"{prefix}.{a.upper()}": c for a, c in ctx.items()}
+    return [
+        View.model_validate({**v.model_dump(), **by_id[v.asset_id]}) if v.asset_id in by_id else v
+        for v in views
+    ]
 
 
 def find_view(data_dir: Path, view_id: str) -> tuple[Path, list[dict[str, Any]]] | None:
@@ -156,6 +178,7 @@ def reproduce(data_dir: Path, view_id: str, current_sha: str | None) -> Reproduc
             continue
         rep.max_score_diff = max(rep.max_score_diff, abs(new["score"] - prev["score"]))
         a, b = _comparable(prev), _comparable(new)
+        b = {k: v for k, v in b.items() if k in a}  # fields added after the view was frozen
         if a == b:
             rep.matched += 1
         else:

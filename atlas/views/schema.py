@@ -44,6 +44,18 @@ class Provenance(BaseModel):
     snapshot_id: str | None = None  # data snapshot the view was computed from
 
 
+class RegimeContext(BaseModel):
+    regime: str
+    prob: float
+    data_month: str
+
+
+class HistoricalAnalog(BaseModel):
+    period: str  # YYYY-MM
+    distance: float
+    fwd_3m_excess: float
+
+
 class View(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -63,6 +75,10 @@ class View(BaseModel):
     drivers: list[Driver]
     invalidation: str
     provenance: Provenance
+    # PRD §3.2 context (atlas.views.context); absent on views frozen before 2026-10-26
+    regime_context: RegimeContext | None = None
+    historical_analogs: list[HistoricalAnalog] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------- stance rules
