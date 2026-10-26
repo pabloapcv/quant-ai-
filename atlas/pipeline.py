@@ -367,6 +367,17 @@ async def run_daily(
 
     await _timed(report, "alerts", alerts)
 
+    from atlas.review import review_due, write_review
+
+    due = review_due(data_dir, started.date())
+    if due:
+
+        async def review(month: str = due) -> tuple[bool, str]:
+            path = write_review(data_dir, returns, month, started.date())
+            return True, f"wrote {path.relative_to(data_dir)}"
+
+        await _timed(report, "review:monthly", review)
+
     out = data_dir / "runs" / f"{started:%Y%m%dT%H%M%SZ}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report.to_json())

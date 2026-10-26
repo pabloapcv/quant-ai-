@@ -53,6 +53,7 @@ pipeline_app = typer.Typer(
     no_args_is_help=True, help="Scheduled pipelines and the live track record."
 )
 report_app = typer.Typer(no_args_is_help=True, help="Research reports (Phase 6).")
+review_app = typer.Typer(no_args_is_help=True, help="Monthly model review (Phase 8).")
 text_app = typer.Typer(no_args_is_help=True, help="Central-bank text: FOMC statements, minutes.")
 nowcast_app = typer.Typer(no_args_is_help=True, help="GDP nowcast research vs GDPNow.")
 eval_app = typer.Typer(no_args_is_help=True, help="Assistant evaluation harness (PRD §10.5).")
@@ -68,6 +69,7 @@ app.add_typer(views_app, name="views")
 app.add_typer(portfolio_app, name="portfolio")
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(report_app, name="report")
+app.add_typer(review_app, name="review")
 app.add_typer(scenario_app, name="scenario")
 app.add_typer(alerts_app, name="alerts")
 app.add_typer(api_app, name="api")
@@ -1560,6 +1562,29 @@ def report_weekly(
     typer.echo(f"wrote {path}")
     if report.unsupported:
         typer.echo(f"[grounding] not traceable to engine facts: {', '.join(report.unsupported)}")
+
+
+@review_app.command("monthly")
+def review_monthly(
+    month: Annotated[str | None, typer.Option(help="YYYY-MM (default: the month so far)")] = None,
+) -> None:
+    """Live-track scores, challenger verdicts, holdout record, operations and decisions.
+
+    The daily pipeline writes the previous month's review in each month's first week.
+    """
+    from atlas.review import write_review
+
+    s = get_settings()
+    store = _store()
+    universes = {p.name for p in (s.data_dir / "gold" / "views").glob("*") if p.is_dir()}
+    returns = {
+        u: get_universe(u).build_panel(store).select("date", "asset", "ret")
+        for u in sorted(universes)
+        if u in UNIVERSES
+    }
+    today = datetime.now(UTC).date()
+    path = write_review(s.data_dir, returns, month or today.isoformat()[:7], today)
+    typer.echo(f"wrote {path}")
 
 
 def main() -> None:  # pragma: no cover
