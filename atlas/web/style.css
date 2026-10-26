@@ -138,3 +138,10 @@ a { color: var(--accent); }
 .seg button[aria-selected="true"] { background: var(--chip); color: var(--fg); font-weight: 600; }
 .tag { display: inline-block; font-size: 11px; padding: 0 7px; border-radius: 999px; background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); font-weight: 600; margin-left: 4px; }
 table.prices td:first-child { font-weight: 550; }
+ul.watch { list-style: none; margin: 0; padding: 0; }
+ul.watch li { display: flex; align-items: flex-start; gap: 8px; border-bottom: 1px solid var(--line); }
+ul.watch li:last-child { border-bottom: 0; }
+.watch-open { flex: 1; text-align: left; background: none; border: 0; color: var(--fg); padding: 9px 0; }
+.watch-open:hover strong { text-decoration: underline; }
+.watch-line { display: block; font-size: 14px; margin-top: 2px; }
+.watch-x { background: none; border: 0; color: var(--muted); font-size: 18px; padding: 8px 4px; }

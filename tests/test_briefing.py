@@ -152,3 +152,33 @@ def test_price_moves() -> None:
     assert ten["level"] == 4.3
     assert ten["big"] is False
     assert "CMDTY.OIL.BRENT" not in out  # no data: left out
+
+
+def test_markdown_watchlist() -> None:
+    b = build_briefing(MovedKit(), [], today=date(2026, 10, 22))
+    md = to_markdown(
+        b,
+        date(2026, 10, 22),
+        [
+            {"asset": "Copper", "headline": "up 45% in a year; no real lean (51%)"},
+            {"asset": "Beef", "error": "no commodity named 'Beef'"},
+        ],
+    )
+    assert "## Your watchlist" in md
+    assert "- **Copper**: up 45% in a year; no real lean (51%)" in md
+    assert "- **Beef**: no commodity named 'Beef'" in md
+    assert "## Your watchlist" not in to_markdown(b, date(2026, 10, 22))
+
+
+def test_cooldown_repeats_hidden() -> None:
+    alerts = [
+        {
+            "rule": "price_move_3m",
+            "at": "2026-10-26T07",
+            "message": "Wheat rose",
+            "status": "cooldown",
+        },
+        {"rule": "price_move_3m", "at": "2026-10-25T07", "message": "Wheat rose", "status": "sent"},
+    ]
+    b = build_briefing(Kit(), alerts, today=date(2026, 10, 26))
+    assert b["alerts"] == [{"date": "2026-10-25", "message": "Wheat rose"}]

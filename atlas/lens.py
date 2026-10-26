@@ -337,9 +337,25 @@ def build_lens(facts: dict[str, Any], asset: str) -> dict[str, Any]:
             f"{m['avg']} over the next year ({pct(history['median_vs_average'])}, ahead in "
             f"{history['share_beat_average']:.0%} of them)."
         )
+    p_beat = lean["chance_beat_peers"]
+    short_lean = {
+        "lean clearly toward": "clear lean in its favor",
+        "lean slightly toward": "slight lean in its favor",
+        "show no real lean on": "no real lean",
+        "lean slightly against": "slight lean against it",
+        "lean clearly against": "clear lean against it",
+    }[lean["words"]]
+    parts = []
+    if price:
+        c12 = price["change_12m"]
+        parts.append(f"{'up' if c12 >= 0 else 'down'} {abs(c12):.0%} in a year")
+    parts.append(f"{short_lean} ({p_beat:.0%})")
+    if hurts:
+        parts.append(f"most exposed when {hurts[0]['when']}")
     return {
         "asset": asset,
         "market": facts["market"],
+        "headline": "; ".join(parts),
         "noun": m["noun"],
         "avg": m["avg"],
         "summary": sentences,

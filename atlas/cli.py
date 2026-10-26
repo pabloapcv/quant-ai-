@@ -1399,15 +1399,23 @@ def pipeline_track() -> None:
 
 # ---------------------------------------------------------------------------- report
 def _write_briefing() -> Path:
+    import yaml
+
     from atlas.agent.tools import ToolKit
     from atlas.briefing import build_briefing, recent_alerts, to_markdown
 
     s = get_settings()
     today = datetime.now(UTC).date()
-    b = build_briefing(ToolKit(s.data_dir, s.config_dir), recent_alerts(s.data_dir, 14), today)
+    kit = ToolKit(s.data_dir, s.config_dir)
+    b = build_briefing(kit, recent_alerts(s.data_dir, 14), today)
+    wl_path = s.config_dir / "watchlist.yaml"
+    items = (yaml.safe_load(wl_path.read_text()) or {}).get("items") if wl_path.exists() else None
+    watch = [
+        {"asset": i["asset"], **kit.get_business_lens(i["market"], i["asset"])} for i in items or []
+    ]
     out = s.data_dir / "reports" / today.isoformat()
     out.mkdir(parents=True, exist_ok=True)
-    (out / "briefing.md").write_text(to_markdown(b, today))
+    (out / "briefing.md").write_text(to_markdown(b, today, watch))
     return out / "briefing.md"
 
 

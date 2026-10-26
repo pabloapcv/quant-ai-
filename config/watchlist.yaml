@@ -1,0 +1,11 @@
+# Items for the "Your watchlist" section of the weekly briefing note (`ramon report briefing`,
+# also written by the Monday job). The web app keeps its own watchlist per browser.
+# market: ind12 (US sectors) | ctry_usd (stock markets abroad) | fx_g10 (major currencies)
+#         | fx_em (emerging-market currencies) | cmdty (commodities)
+# asset:  the name exactly as the app lists it.
+items: []
+# Example:
+# items:
+#   - {market: ind12, asset: Retail and wholesale}
+#   - {market: cmdty, asset: Copper}
+#   - {market: fx_em, asset: Mexican peso}

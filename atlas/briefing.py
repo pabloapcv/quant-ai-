@@ -304,6 +304,8 @@ def build_briefing(
         {"date": str(a.get("at", ""))[:10], "message": _plain_alert(a)}
         for a in alerts
         if a.get("rule") not in HIDDEN_ALERTS
+        # repeats inside the cooldown are logged too: show each alert once
+        and a.get("status") not in ("cooldown", "rate_limited")
     ][:6]
     try:
         out["prices"] = price_moves(_price_series(kit))
@@ -343,7 +345,9 @@ def _fmt_move(x: float | None, kind: str) -> str:
     return f"{x * 100:+.0f}%" if kind == "pct" else f"{x:+.2f} pts"
 
 
-def to_markdown(b: dict[str, Any], as_of: date) -> str:
+def to_markdown(
+    b: dict[str, Any], as_of: date, watchlist: list[dict[str, Any]] | None = None
+) -> str:
     """The briefing as a short note to read or forward (same content as the web page)."""
     lines = [f"# Ramon briefing, {as_of:%B} {as_of.day}, {as_of.year}", ""]
     e = b.get("economy")
@@ -362,6 +366,13 @@ def to_markdown(b: dict[str, Any], as_of: date) -> str:
                 f"(Atlanta Fed estimate for {_quarter(g['quarter'])}, updated {g['updated']})"
             )
         lines += [f"- **Borrowing and market conditions:** {e['financial_conditions']}", ""]
+    if watchlist:
+        lines += ["## Your watchlist", ""]
+        for w in watchlist:
+            lines.append(
+                f"- **{w['asset']}**: {w.get('headline') or w.get('error', 'not available')}"
+            )
+        lines.append("")
     wc = b.get("what_changed") or {}
     lines += [f"## What changed since {wc.get('since', '')}", ""]
     lines += [f"- {t}" for t in wc.get("items", [])] or ["- No significant changes."]

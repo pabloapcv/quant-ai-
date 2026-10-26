@@ -61,6 +61,7 @@ def test_lens_sentences() -> None:
     assert len(b["events"]) == len(PRESETS)
     assert b["helps"] == ["usd_up", "oil_down"]
     assert b["hurts"] == ["oil_up"]
+    assert b["headline"] == "slight lean against it (47%); most exposed when oil prices jumped 30%"
     assert b["summary"] == [
         "The models lean slightly against Retail for the next 3 months "
         "(47% chance of beating the other sectors; 2 of 3).",

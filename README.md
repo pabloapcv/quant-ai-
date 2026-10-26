@@ -50,6 +50,7 @@ Start it with `ramon api serve` and open **http://127.0.0.1:8710/**.
 | Page | What it shows | Uses AI? |
 |---|---|---|
 | **Briefing** (home) | The economy in one sentence; overall picture, recession risk, current growth and borrowing conditions with traffic lights; what changed in the past month; prices that matter (oil, gas, metals, wheat, gold, the dollar, Treasury and mortgage rates) over 3 and 12 months with big moves flagged; what the Fed and ECB decided and their tone; where the models lean; recent warnings. Print or save it as a PDF. | No. Fixed rules turn numbers into sentences. |
+| **Your watchlist** (on the Briefing) | The items you pin from Your business, each with a one-line summary (for example "Wheat: up 59% in a year; slight lean in its favor (53%); most exposed when the dollar strengthened 10%"). Kept in your browser. | No |
 | **Your business** (on the Briefing) | Pick a US sector, a stock market abroad, a major or emerging-market currency you are exposed to, or a commodity you buy or sell (energy, metals, crops). See the model lean and what drives it, how it moved in each what-if event, and what followed in the past periods most like today. | No |
 | **What if…?** | One-click events (oil up or down 30%, interest rates up or down 1 point, market panic, a stronger dollar, rising inflation fears) with a winners-and-losers chart for sectors, world stock markets, major or emerging-market currencies, government bonds or commodities. | No |
 | **Ask Ramon** | Chat. Ask in your own words; answers come in plain language, with the data steps shown and a "✓ Every number checked" line. | Yes (Claude) |
@@ -59,7 +60,8 @@ Start it with `ramon api serve` and open **http://127.0.0.1:8710/**.
 ### Reports and alerts
 
 - **Executive briefing note**: `ramon report briefing` writes the Briefing as a short
-  document to `data/reports/<date>/briefing.md`. It is written every Monday automatically.
+  document to `data/reports/<date>/briefing.md`. It is written every Monday automatically, including a watchlist section for the items listed in
+  `config/watchlist.yaml`.
 - **Weekly research note**: a longer analyst note drafted by Claude, reviewed by a second
   "red team" pass, with every number checked (`ramon report weekly`, Mondays 07:00).
 - **Alerts**: rules in `config/alerts.yaml`, for example the recession probability crossing
@@ -286,6 +288,7 @@ Other configuration files:
 
 - `config/series.yaml`: the data series catalog
 - `config/alerts.yaml`: alert rules, thresholds and delivery (ntfy or Slack)
+- `config/watchlist.yaml`: the watchlist for the weekly briefing note
 - `config/evals/golden.yaml`: the assistant's test questions
 
 ---
@@ -357,7 +360,7 @@ atlas/                Python package (the engine)
 config/               series catalog, alert rules, test questions
 deploy/launchd/       scheduled-job templates
 docs/                 runbooks, research status, signal cards
-tests/                291 automated tests, including the look-ahead leakage suite
+tests/                293 automated tests, including the look-ahead leakage suite
 data/                 data, reports and logs (created locally, never committed)
 PRD.md                full product and technical specification
 ```
@@ -366,7 +369,7 @@ PRD.md                full product and technical specification
 
 ## 13. Quality and testing
 
-- **Automated tests:** 291 tests run on every change in CI (Python 3.12 and 3.13), along with
+- **Automated tests:** 293 tests run on every change in CI (Python 3.12 and 3.13), along with
   linting, formatting and type checks. The look-ahead leakage suite is part of the run and
   blocks merges.
 - **Assistant evaluation:** `ramon eval run` asks the 176 test questions and compares the

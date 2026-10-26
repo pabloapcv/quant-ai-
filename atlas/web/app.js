@@ -220,6 +220,7 @@
       parts.push(`<div class="card"><h3>What changed since ${esc(dayName(wc.since))}</h3>${wc.items.length
         ? `<ul class="changes">${wc.items.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
         : '<p class="muted">No significant changes in the past month.</p>'}</div>`);
+      parts.push(`<div id="watch-wrap"></div>`);
       if ((b.prices || []).length) {
         const mv = (x, kind) => (x === null || x === undefined ? '—' : kind === 'pct' ? spct(x, 0) : `${x > 0 ? '+' : ''}${num(x, 2)} pts`);
         const rows = b.prices.map((pr) => `<tr${pr.big ? ' class="big"' : ''}><td>${esc(pr.name)}${pr.level !== null ? ` <span class="muted small">now ${num(pr.level, 2)}%</span>` : ''}${pr.big ? ' <span class="tag">big move</span>' : ''}</td>
@@ -256,6 +257,7 @@
       ].map((q) => `<button class="ex go">${esc(q)}</button>`).join('')}</div></div>`);
       el.innerHTML = parts.join('');
       initLens();
+      renderWatch();
       $$('.how-link', el).forEach((a) => a.addEventListener('click', (ev) => { ev.preventDefault(); show('how'); }));
       $$('.go', el).forEach((btn) => btn.addEventListener('click', () => { show('ask'); ask(btn.textContent); }));
     } catch (err) { failBox(el, err); }
@@ -317,9 +319,44 @@
         <div class="k small muted" style="margin-top:12px">How ${esc(asset)} moved vs ${esc(L.avg)} in the same month, by event</div>
         <div class="bars">${bars}</div>
         <div class="callout">${esc(L.trust_note)}</div>
-        <div class="examples no-print"><button class="ex go2">What are the biggest risks for ${esc(asset)} right now?</button></div>`;
+        <div class="examples no-print"><button class="ex pin" type="button"></button><button class="ex go2">What are the biggest risks for ${esc(asset)} right now?</button></div>`;
       $$('.go2', body).forEach((btn) => btn.addEventListener('click', () => { show('ask'); ask(btn.textContent); }));
+      const pin = $('.pin', body);
+      const paint = () => { pin.textContent = isWatched(market, asset) ? '✓ On your watchlist (remove)' : '+ Add to your watchlist'; };
+      paint();
+      pin.addEventListener('click', () => { toggleWatch(market, asset); paint(); renderWatch(); });
     } catch (e) { failBox(body, e); }
+  }
+
+  // ---------------------------------------------------------------- Watchlist
+  // Per-browser convenience: the pinned items live in this browser only.
+  const watchList = () => { try { return JSON.parse(store.get('ramon_watchlist', '[]')) || []; } catch { return []; } };
+  const isWatched = (m, a) => watchList().some((w) => w.market === m && w.asset === a);
+  function toggleWatch(m, a) {
+    const list = watchList();
+    const next = isWatched(m, a) ? list.filter((w) => !(w.market === m && w.asset === a)) : [...list, { market: m, asset: a }].slice(-12);
+    store.set('ramon_watchlist', JSON.stringify(next));
+  }
+  async function renderWatch() {
+    const wrap = $('#watch-wrap');
+    if (!wrap) return;
+    const list = watchList();
+    if (!list.length) { wrap.innerHTML = ''; return; }
+    if (!lensMarkets.length) { try { lensMarkets = (await api('/v1/lens')).markets; } catch { /* labels fall back to ids */ } }
+    const label = (m) => (lensMarkets.find((x) => x.id === m) || {}).label || m;
+    wrap.innerHTML = `<h2>Your watchlist</h2><div class="card"><ul class="watch">${list.map((w, i) => `<li data-i="${i}"><button type="button" class="watch-open"><strong>${esc(w.asset)}</strong> <span class="muted small">${esc(label(w.market))}</span><span class="watch-line muted"><span class="spinner"></span></span></button><button type="button" class="watch-x no-print" title="Remove" aria-label="Remove ${esc(w.asset)}">×</button></li>`).join('')}</ul></div>`;
+    $$('.watch li', wrap).forEach((li) => {
+      const w = list[Number(li.dataset.i)];
+      $('.watch-open', li).addEventListener('click', async () => {
+        store.set(`ramon_lens_${w.market}`, w.asset);
+        await pickMarket(w.market);
+        $('#lens').scrollIntoView({ behavior: 'smooth' });
+      });
+      $('.watch-x', li).addEventListener('click', () => { toggleWatch(w.market, w.asset); renderWatch(); });
+      api(`/v1/lens?market=${encodeURIComponent(w.market)}&asset=${encodeURIComponent(w.asset)}`)
+        .then((L) => { $('.watch-line', li).textContent = L.headline; })
+        .catch((e) => { $('.watch-line', li).textContent = `Not available: ${e.message}`; });
+    });
   }
 
   // ---------------------------------------------------------------- What if

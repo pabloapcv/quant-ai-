@@ -186,7 +186,7 @@ def create_app(
         return {"presets": PRESETS}
 
     facts_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
-    facts_lock = threading.Lock()
+    facts_locks: dict[str, threading.Lock] = {}  # one per market: a cached one never waits
 
     def from_disk(name: str, build: Any, variant: str = "") -> dict[str, Any]:
         from atlas.webcache import disk_cached
@@ -198,10 +198,10 @@ def create_app(
         from atlas.lens import market_facts as build
 
         key = (datetime.now(UTC).date(), latest_run_name(), market)
-        with facts_lock:
+        with facts_locks.setdefault(market, threading.Lock()):
             if key not in facts_cache:
-                if len(facts_cache) > 12:  # old days' entries
-                    facts_cache.clear()
+                for k in [k for k in facts_cache if k[2] == market]:  # older days / runs
+                    del facts_cache[k]
                 facts_cache[key] = from_disk(f"lens-{market}", lambda: build(kit.get(), market))
             return facts_cache[key]
 
