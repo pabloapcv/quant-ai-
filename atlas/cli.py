@@ -200,9 +200,19 @@ def ingest_releases(
                 reps = await ingest_series([cat.get(i) for i in ids], fred, store)
             return sum(r.rows_new for r in reps)
 
-        report.slots = await execute(slots, ingest, max_wait=timedelta(minutes=max_wait_min))
+        async def check_alerts(res: Any) -> None:
+            from atlas.alerts import run_alerts
+
+            raised = await asyncio.to_thread(run_alerts, settings.data_dir, settings.config_dir)
+            res.alerts = [a.message for a in raised if a.status == "sent"]
+
+        report.slots = await execute(
+            slots, ingest, max_wait=timedelta(minutes=max_wait_min), on_new_data=check_alerts
+        )
         for r in report.slots:
             typer.echo(f"{r.at:%H:%M}Z {r.new_rows:>5} new rows after {r.attempts} tries  {r.note}")
+            for msg in r.alerts:
+                typer.echo(f"        alert: {msg}")
         return report
 
     from atlas.connectors.fred import FredError

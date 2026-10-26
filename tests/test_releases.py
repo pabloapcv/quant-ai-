@@ -79,3 +79,28 @@ async def test_execute_gives_up_and_catches_up() -> None:
     (res2,) = await execute([slot], never, now=late.now, sleep=late.sleep)
     assert res2.attempts == 1
     assert "catch-up" in res2.note
+
+
+async def test_alert_hook_runs_minutes_after_new_data_only() -> None:
+    clock = Clock(datetime(2026, 11, 12, 13, 0, tzinfo=UTC))
+    slots = [
+        Slot(datetime(2026, 11, 12, 13, 30, tzinfo=UTC), ("US.CPI.CORE",)),
+        Slot(datetime(2026, 11, 12, 15, 0, tzinfo=UTC), ("US.UMICH",)),
+    ]
+    hooked: list[datetime] = []
+
+    async def ingest(ids: Sequence[str]) -> int:
+        return 3 if ids == ("US.CPI.CORE",) else 0
+
+    async def hook(res: object) -> None:
+        hooked.append(clock.now())
+
+    await execute(
+        slots,
+        ingest,
+        now=clock.now,
+        sleep=clock.sleep,
+        max_wait=timedelta(minutes=5),
+        on_new_data=hook,
+    )
+    assert hooked == [datetime(2026, 11, 12, 13, 31, tzinfo=UTC)]  # within 15 minutes (story 4)

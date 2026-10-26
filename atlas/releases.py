@@ -42,6 +42,7 @@ class SlotResult:
     new_rows: int = 0
     finished_at: datetime | None = None
     note: str = ""
+    alerts: list[str] = field(default_factory=list)  # alert messages raised after this slot
 
 
 @dataclass
@@ -83,8 +84,13 @@ async def execute(
     delay: timedelta = timedelta(minutes=1),
     poll_s: float = 60.0,
     max_wait: timedelta = timedelta(minutes=30),
+    on_new_data: Callable[[SlotResult], Awaitable[None]] | None = None,
 ) -> list[SlotResult]:
-    """Wait for each slot, then ingest until new rows arrive or ``max_wait`` passes."""
+    """Wait for each slot, then ingest until new rows arrive or ``max_wait`` passes.
+
+    ``on_new_data`` runs after a slot that brought new rows (the CLI evaluates the alert
+    rules there, so a regime-probability cross is flagged minutes after the release).
+    """
     results = []
     for slot in slots:
         res = SlotResult(slot.at, slot.series)
@@ -102,6 +108,8 @@ async def execute(
             await sleep(poll_s)
         if res.new_rows == 0 and not res.note:
             res.note = f"no new data within {int(max_wait.total_seconds() // 60)} minutes"
+        if res.new_rows > 0 and on_new_data is not None:
+            await on_new_data(res)
         res.finished_at = now()
         results.append(res)
     return results
