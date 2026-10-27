@@ -7,8 +7,13 @@ Each month: maximize expected active return minus a turnover cost, subject to
 * long-only, fully invested (active weights sum to zero).
 
 The benchmark is the equal-weight universe (the reference the views forecast against).
-Expected returns come straight from the views' expected excess returns; Black-Litterman
-blending with an equilibrium prior needs market-cap weights and arrives with Phase 1 data.
+Expected returns come from the views' expected excess returns, either directly or (with
+``black_litterman=True``) blended with an equilibrium prior. The benchmark is equal-weight,
+so the equilibrium that makes it optimal has zero expected *active* return: the prior is 0,
+with covariance ``tau * Sigma``, and each view's uncertainty ``Omega`` comes from its own
+80% conformal range. The posterior ``(inv(tau Sigma) + inv(Omega))^-1 inv(Omega) q`` shrinks
+uncertain views toward zero and spreads conviction across correlated assets (He & Litterman
+1999). A cap-weighted prior needs market caps and arrives with Phase 1 data.
 """
 
 from __future__ import annotations
@@ -33,6 +38,8 @@ class PortfolioConfig:
     cost_bps: float = 10.0  # per unit of one-way turnover
     turnover_aversion: float = 1.0  # multiplies cost in the objective
     periods_per_year: int = 12
+    black_litterman: bool = False
+    tau: float = 0.05  # prior uncertainty as a fraction of the return covariance
 
 
 def optimize_active(
@@ -66,6 +73,19 @@ def optimize_active(
         return prev
     out: FloatArray = np.clip(np.asarray(w.value, dtype=np.float64), 0.0, None)
     return np.asarray(out / out.sum(), dtype=np.float64)
+
+
+Z80 = 1.2816  # standard-normal quantile of the 80% range's upper edge
+
+
+def black_litterman(
+    q: FloatArray, view_sd: FloatArray, cov: FloatArray, tau: float = 0.05
+) -> FloatArray:
+    """Posterior expected active returns: zero prior (equal-weight equilibrium), views ``q``."""
+    prior_prec = np.linalg.inv(tau * cov + 1e-12 * np.eye(cov.shape[0]))
+    omega_inv = np.diag(1.0 / np.maximum(view_sd, 1e-6) ** 2)
+    post: FloatArray = np.linalg.solve(prior_prec + omega_inv, omega_inv @ q)
+    return post
 
 
 @dataclass(frozen=True)
@@ -130,6 +150,12 @@ def backtest_portfolio(
         nxt = rmat[i + 1]
         part = by_date[d]
         alpha_map = dict(zip(part["asset"].to_list(), part["exp_excess"].to_list(), strict=True))
+        sd_map: dict[str, float] = {}
+        if c.black_litterman and {"p_lo", "p_hi"} <= set(part.columns):
+            for a, lo, hi in part.select("asset", "p_lo", "p_hi").iter_rows():
+                if lo is not None and hi is not None and hi > lo:
+                    # 80% range over the horizon -> monthly standard deviation
+                    sd_map[a] = (hi - lo) / (2 * Z80) / math.sqrt(horizon)
         cols = [
             j
             for j, a in enumerate(assets)
@@ -143,6 +169,11 @@ def backtest_portfolio(
         prev = np.array([prev_w.get(a, 0.0) for a in names])
         prev = prev / prev.sum() if prev.sum() > 0 else bench
         alpha = np.array([alpha_map[a] for a in names], dtype=np.float64) / horizon
+        if c.black_litterman:
+            if not all(a in sd_map for a in names):
+                continue  # BL needs every view's range
+            sd = np.array([sd_map[a] for a in names], dtype=np.float64)
+            alpha = black_litterman(alpha, sd, cov, c.tau)
         w = optimize_active(alpha, cov, bench, prev, c)
         active = w - bench
         turnover = float(np.abs(w - prev).sum())

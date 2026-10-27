@@ -123,7 +123,7 @@ All sources are free and public. Only FRED needs a (free) key.
 | **IMF commodity prices (PCPS)** | Monthly world benchmark prices for 17 commodities since 1992: oil, gas, coal, copper, aluminum, nickel, zinc, iron ore, gold, silver, wheat, corn, soybeans, sugar, coffee, cotton | No |
 | **Federal Reserve website** | FOMC statements and minutes | No |
 
-The catalog of 300 series is in `config/series.yaml`. Raw downloads are archived under
+The catalog of 344 series is in `config/series.yaml`. Raw downloads are archived under
 `data/raw/` so any figure can be traced back to its source.
 
 **Not included yet:** individual company prices and fundamentals (needs a paid vendor, see
@@ -360,7 +360,7 @@ atlas/                Python package (the engine)
 config/               series catalog, alert rules, test questions
 deploy/launchd/       scheduled-job templates
 docs/                 runbooks, research status, signal cards
-tests/                294 automated tests, including the look-ahead leakage suite
+tests/                315 automated tests, including the look-ahead leakage suite
 data/                 data, reports and logs (created locally, never committed)
 PRD.md                full product and technical specification
 ```
@@ -369,7 +369,7 @@ PRD.md                full product and technical specification
 
 ## 13. Quality and testing
 
-- **Automated tests:** 294 tests run on every change in CI (Python 3.12 and 3.13), along with
+- **Automated tests:** 315 tests run on every change in CI (Python 3.12 and 3.13), along with
   linting, formatting and type checks. The look-ahead leakage suite is part of the run and
   blocks merges.
 - **Assistant evaluation:** `ramon eval run` asks the 176 test questions and compares the
@@ -391,14 +391,17 @@ The project is built in phases defined in [PRD.md](PRD.md#15-delivery-plan--acce
 | P0 Foundations | Point-in-time store, connectors, data contracts, snapshots | Done |
 | P1 Market data | Company prices and fundamentals, sector history | **Waiting on a paid data vendor** |
 | P2 Economy engine | Growth/inflation reading, regimes, recession risk, nowcast | Done (GDPNow used for current growth) |
-| P3 Signals and backtester | Signal library, statistical gates, signal cards | Done; 0 of 84 pass every gate |
-| P4 Views and portfolio | Combined views, ranges, model portfolio, champion/challenger | Done; holdout shows no reliable skill |
-| P5 Global | Countries, major and emerging-market currencies, government bonds, commodities | Done; credit not started |
-| P6 AI assistant | Tools, chat, number checker, weekly note, evals, central-bank text | Done; transcripts and news not started |
-| P7 Product | Web app, executive briefing, alerts, scenarios, monitoring | Done (local web app) |
-| P8 Live paper track | Monthly frozen views scored over 12 months | Running: first views frozen in October 2026 |
+| P3 Signals and backtester | 34 signals across 10 universes, statistical gates, 118 signal cards, test your own signal file | Built; 0 signals pass every gate |
+| P4 Views and portfolio | Ensemble views with ranges, regime context, analogs and risks; model portfolio; Black-Litterman option | Built; 2021-2025 skill below the PRD targets |
+| P5 Global | 33 country markets, major and EM currencies, developed and EM bonds, commodities, credit, crypto | Built; global sectors need paid data |
+| P6 AI assistant | Tools, chat, number checker, weekly note and digest, evals, central-bank text | Built; sending needs a channel; news needs a source |
+| P7 Product | Web app, executive briefing, watchlist, alerts within minutes of releases, monitoring | Done |
+| P8 Live paper track | Frozen views scored daily, monthly model review | Running; 12-month track completes about October 2027 |
 
-**Next steps:** choose a market-data vendor (P1); add credit and emerging-market stock markets; let the live track accumulate a year of evidence before relying on the market
+Criterion-by-criterion status with evidence: [docs/phase_status.md](docs/phase_status.md).
+
+**Next steps:** choose a market-data vendor (P1) and a news source (P6); connect a
+delivery channel for alerts and the weekly digest; let the live track accumulate a year of evidence before relying on the market
 leans; optional hosted deployment with sign-in.
 
 ---
@@ -407,6 +410,7 @@ leans; optional hosted deployment with sign-in.
 
 - [PRD.md](PRD.md): full product and technical specification
 - [docs/runbooks.md](docs/runbooks.md): operating guide (jobs, alerts, recovery, API)
+- [docs/phase_status.md](docs/phase_status.md): every PRD exit criterion, P3 to P8, with evidence
 - [docs/phase3_status.md](docs/phase3_status.md): signal research results
 - `docs/signals/`: one research card per signal
 - The **How it works** page in the app: the plain-language version of this document

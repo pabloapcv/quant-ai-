@@ -178,3 +178,14 @@ def test_briefing_cached_on_disk_across_restarts(
     second = TestClient(create_app(settings)).get("/v1/briefing").json()  # a "restart"
     assert first == second == {"economy": None, "n": 1}
     assert len(list((data / "cache" / "web").glob("*_briefing.json"))) == 1
+
+
+def test_sleeves_endpoint(data: Path) -> None:
+    client = TestClient(create_app(Settings(data_dir=data, config_dir=REPO / "config")))
+    assert client.get("/v1/sleeves").status_code == 404
+    folder = data / "gold" / "sleeves" / "3M"
+    folder.mkdir(parents=True)
+    (folder / "2026-09-01.json").write_text(json.dumps([{"asset_id": "CREDIT.BAA"}]))
+    body = client.get("/v1/sleeves").json()
+    assert body["views"] == [{"asset_id": "CREDIT.BAA"}]
+    assert "base rates" in body["trust_note"]

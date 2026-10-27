@@ -1562,6 +1562,38 @@ def report_weekly(
         typer.echo(f"[grounding] not traceable to engine facts: {', '.join(report.unsupported)}")
 
 
+@views_app.command("sleeves")
+def views_sleeves(
+    open_holdout: Annotated[
+        bool, typer.Option("--open-holdout", help="Score 2021-2025 once and log it")
+    ] = False,
+    reason: Annotated[str, typer.Option(help="Why the holdout is opened now")] = "",
+) -> None:
+    """Credit and crypto: probability that each beats Treasuries / cash over 3 months."""
+    from atlas.models.timeseries import (
+        latest_views,
+        open_sleeve_holdout,
+        sleeve_panel,
+        walk_forward,
+    )
+
+    s = get_settings()
+    store = _store()
+    if open_holdout:
+        if not reason:
+            raise typer.BadParameter("give --reason when opening the holdout")
+        e = open_sleeve_holdout(s.data_dir, store, reason=reason, code_sha=git_sha() or "")
+        typer.echo(f"holdout opened for sleeves/ts_v1: {jsonsafe.dumps(e['ensemble'])}")
+        for a, sc in e["assets"].items():
+            typer.echo(f"  {a:<12} {jsonsafe.dumps(sc)}")
+        return
+    for v in latest_views(walk_forward(sleeve_panel(store))):
+        typer.echo(
+            f"{v['asset_id']:<12} {v['as_of'][:7]}  P(beat {v['benchmark']}) "
+            f"{v['prob_positive_excess']:.0%}  {v['stance']}"
+        )
+
+
 @review_app.command("monthly")
 def review_monthly(
     month: Annotated[str | None, typer.Option(help="YYYY-MM (default: the month so far)")] = None,

@@ -124,6 +124,7 @@ def test_gather_save_and_previous(tmp_path: Path) -> None:
         "report_date",
         "macro_regime",
         "views",
+        "views_1m",
         "track_records",
         "portfolios",
         "signal_gates",
@@ -161,3 +162,36 @@ def test_cli_report_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     finally:
         get_settings.cache_clear()
     _ = SimpleNamespace
+
+
+def test_views_heatmap() -> None:
+    from atlas.agent.report import heatmap
+
+    facts = {
+        "views": {
+            "ind12": {
+                "as_of_month": "2026-08-01",
+                "views": [
+                    {
+                        "asset": "Energy",
+                        "stance": "overweight",
+                        "prob_beat_median": 0.58,
+                        "score": 1.0,
+                    },
+                    {
+                        "asset": "Telecom",
+                        "stance": "underweight",
+                        "prob_beat_median": 0.41,
+                        "score": -1.0,
+                    },
+                ],
+            }
+        },
+        "views_1m": {
+            "ind12": {"views": [{"asset": "Energy", "stance": "neutral", "prob_beat_median": 0.52}]}
+        },
+    }
+    lines = heatmap(facts)
+    assert "| Energy | Neutral (52%) | OW (58%) |" in lines
+    assert "| Telecom | n/a | UW (41%) |" in lines
+    assert heatmap({}) == []

@@ -112,3 +112,18 @@ def test_cli_portfolio(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         assert "ex-ante TE" in res.output
     finally:
         get_settings.cache_clear()
+
+
+def test_black_litterman_shrinks_uncertain_views() -> None:
+    import numpy as np
+
+    from atlas.models.portfolio.optimizer import black_litterman
+
+    cov = np.diag([0.002, 0.002])
+    q = np.array([0.01, 0.01])
+    sure = black_litterman(q, np.array([1e-4, 1e-4]), cov)
+    unsure = black_litterman(q, np.array([0.2, 0.2]), cov)
+    assert np.allclose(sure, q, atol=1e-4)  # confident views pass through
+    assert np.all(np.abs(unsure) < 0.001)  # uncertain views shrink toward the zero prior
+    mixed = black_litterman(q, np.array([1e-4, 0.2]), cov)
+    assert mixed[0] > 10 * mixed[1]

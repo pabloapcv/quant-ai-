@@ -91,6 +91,7 @@ async def test_run_daily_without_ingest(tmp_path: Path, monkeypatch: pytest.Monk
         "challenger:ens_v1_gbm:ctry_dev_lcl:3M",
         "views:ind12:3M",
         "challenger:ens_v1_gbm:ind12:3M",
+        "views:sleeves:3M",
         "track:score",
         "quality:drift",
         "alerts",

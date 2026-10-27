@@ -87,6 +87,7 @@ class Report:
         ]
         if self.red_team.strip():
             parts += ["", self.red_team.strip()]
+        parts += ["", *heatmap(self.facts)]
         if self.unsupported:
             parts += [
                 "",
@@ -94,6 +95,45 @@ class Report:
             ]
         parts += ["", "---", f"_{DISCLAIMER}_", ""]
         return "\n".join(parts)
+
+
+STANCE_MARK = {
+    "strong_overweight": "Strong OW",
+    "overweight": "OW",
+    "neutral": "Neutral",
+    "underweight": "UW",
+    "strong_underweight": "Strong UW",
+}
+
+
+def heatmap(facts: dict[str, Any]) -> list[str]:
+    """Views by asset x horizon (PRD user story 1), built from the facts, not by the writer."""
+    out = ["## Views heatmap (stance by horizon)", ""]
+    for u, v3 in (facts.get("views") or {}).items():
+        v1 = (facts.get("views_1m") or {}).get(u) or {}
+        if "views" not in v3:
+            continue
+        one = {x["asset"]: x for x in v1.get("views", [])}
+        out += [
+            f"**{u}** (as of {v3.get('as_of_month', '')}; OW / UW = overweight / underweight; "
+            "probability of beating the median in brackets)",
+            "",
+            "| Asset | 1M | 3M |",
+            "|---|---|---|",
+        ]
+
+        def cell(x: dict[str, Any] | None) -> str:
+            if not x:
+                return "n/a"
+            p = x.get("prob_beat_median")
+            return STANCE_MARK.get(x.get("stance", ""), "?") + (
+                f" ({p:.0%})" if p is not None else ""
+            )
+
+        for x in sorted(v3["views"], key=lambda r: -(r.get("score") or 0.0)):
+            out.append(f"| {x['asset']} | {cell(one.get(x['asset']))} | {cell(x)} |")
+        out.append("")
+    return out if len(out) > 2 else []
 
 
 # ---------------------------------------------------------------------------- facts
@@ -138,6 +178,7 @@ def gather_facts(toolkit: ToolKit, as_of: date, reports_dir: Path) -> dict[str, 
     facts: dict[str, Any] = {"report_date": as_of.isoformat()}
     facts["macro_regime"] = get("get_regime", as_of="")
     facts["views"] = {u: get("get_views", universe=u, horizon=3) for u in HEADLINE_UNIVERSES}
+    facts["views_1m"] = {u: get("get_views", universe=u, horizon=1) for u in HEADLINE_UNIVERSES}
     facts["track_records"] = {
         u: get("get_track_record", universe=u, horizon=3) for u in HEADLINE_UNIVERSES
     }

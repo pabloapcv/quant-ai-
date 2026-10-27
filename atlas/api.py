@@ -225,6 +225,22 @@ def create_app(
         except KeyError:
             raise HTTPException(404, f"no {MARKETS[market]['noun']} named {asset!r}") from None
 
+    @app.get("/v1/sleeves", dependencies=guarded)
+    def sleeves() -> dict[str, Any]:
+        """Credit and crypto: chance of beating Treasuries / cash over 3 months (frozen)."""
+        folder = data_dir / "gold" / "sleeves" / "3M"
+        files = sorted(folder.glob("*.json")) if folder.exists() else []
+        if not files:
+            raise HTTPException(404, "no credit/crypto views frozen yet (daily pipeline)")
+        return {
+            "views": json.loads(files[-1].read_text()),
+            "trust_note": (
+                "Over 2021-2025 these probabilities were no better than the plain historical "
+                "base rates (credit usually beats Treasuries; crypto history is short). "
+                "Treat them as base-rate leans, not signals."
+            ),
+        }
+
     @app.get("/v1/central-banks", dependencies=guarded)
     def central_banks() -> dict[str, Any]:
         """The latest FOMC and ECB statements: decision, reading and what changed."""

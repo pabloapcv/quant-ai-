@@ -330,6 +330,13 @@ async def run_daily(
 
             await _timed(report, f"challenger:{version}:{universe}:{horizon}M", challenger)
 
+    async def sleeves() -> tuple[bool, str]:
+        from atlas.models.timeseries import freeze_sleeves
+
+        return freeze_sleeves(data_dir, store)
+
+    await _timed(report, "views:sleeves:3M", sleeves)
+
     async def track() -> tuple[bool, str]:
         rec: TrackRecord = score_all(data_dir, returns)
         report.track = rec.summary()
