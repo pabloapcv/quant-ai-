@@ -214,3 +214,24 @@ def test_send_text_posts_to_ntfy_and_slack(monkeypatch: pytest.MonkeyPatch) -> N
     assert seen[0][2]["title"] == "Ramon briefing"
     assert b"*Ramon briefing*" in seen[1][1]
     assert send_text(Channels(slack_webhook_env=""), "x") == {}
+
+
+def test_ntfy_topic_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    from atlas.alerts import Channels, send_text
+    from atlas.settings import get_settings
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200)
+
+    monkeypatch.setenv("ATLAS_NTFY_TOPIC_URL", "https://ntfy.example/secret-topic")
+    get_settings.cache_clear()
+    try:
+        client = httpx.Client(transport=httpx.MockTransport(handler))
+        assert send_text(Channels(), "hi", client=client) == {"ntfy": "ok"}
+        assert seen == ["https://ntfy.example/secret-topic"]
+    finally:
+        monkeypatch.delenv("ATLAS_NTFY_TOPIC_URL")
+        get_settings.cache_clear()

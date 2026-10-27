@@ -421,12 +421,25 @@ def _deliver(channels: Channels, alert: Alert, client: httpx.Client | None) -> d
 def send_text(
     channels: Channels, text: str, *, title: str = "", client: httpx.Client | None = None
 ) -> dict[str, str]:
-    """Post ``text`` to every configured channel (ntfy, Slack); {} when none is configured."""
+    """Post ``text`` to every configured channel (ntfy, Slack); {} when none is configured.
+
+    The ntfy topic comes from ``config/alerts.yaml`` or, better, ``ATLAS_NTFY_TOPIC_URL`` in
+    ``.env``; the Slack webhook from the variable named by ``slack_webhook_env``, in the
+    environment or in ``.env``.
+    """
+    from atlas.settings import get_settings
+
+    settings = get_settings()
     targets: dict[str, tuple[str, dict[str, Any]]] = {}
-    if channels.ntfy_topic_url:
+    ntfy = channels.ntfy_topic_url or (
+        settings.ntfy_topic_url.get_secret_value() if settings.ntfy_topic_url else ""
+    )
+    if ntfy:
         headers = {"Title": title} if title else {}
-        targets["ntfy"] = (channels.ntfy_topic_url, {"content": text.encode(), "headers": headers})
+        targets["ntfy"] = (ntfy, {"content": text.encode(), "headers": headers})
     slack = os.environ.get(channels.slack_webhook_env, "") if channels.slack_webhook_env else ""
+    if not slack and channels.slack_webhook_env == "ATLAS_SLACK_WEBHOOK_URL":
+        slack = settings.slack_webhook_url.get_secret_value() if settings.slack_webhook_url else ""
     if slack:
         body = f"*{title}*\n{text}" if title else f"Ramon: {text}"
         targets["slack"] = (slack, {"json": {"text": body}})

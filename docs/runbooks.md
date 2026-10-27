@@ -55,6 +55,23 @@ Log: `data/runs/web-launchd.log`. Remove with
 `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.atlas.web.plist`. The server reloads
 data on its own after each daily pipeline run, so it never needs a restart for new data.
 
+## Phone notifications (ntfy)
+
+Alerts and the Monday briefing digest can be pushed to a phone with [ntfy](https://ntfy.sh):
+
+1. Put a private topic in `.env` (never in `config/alerts.yaml`, which is committed):
+   `ATLAS_NTFY_TOPIC_URL=https://ntfy.sh/ramon-<long random name>`. On the public ntfy.sh
+   server anyone who knows a topic name can read it, so keep the name long and random.
+2. Install the ntfy app (iOS or Android) or open https://ntfy.sh/app, choose **Subscribe to
+   topic**, and enter the topic name (the part after `ntfy.sh/`).
+3. Send a test: `ramon report briefing --send` (the digest; the result is recorded in
+   `data/reports/<date>/delivery.json`).
+
+From then on alerts are pushed as they fire (daily pipeline and release-day ingest; each
+alert at most once per cooldown window) and the digest every Monday at 07:00. Remove the
+line from `.env` to stop. A Slack incoming webhook works the same way with
+`ATLAS_SLACK_WEBHOOK_URL`.
+
 ## Executive briefing
 
 `ramon report briefing` writes `data/reports/<date>/briefing.md`: the web app's Briefing page

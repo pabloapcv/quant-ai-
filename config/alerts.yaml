@@ -1,8 +1,9 @@
 # Alert rules (PRD §11.3), evaluated after every daily pipeline run.
 #
 # Every alert is written to data/alerts/<date>.jsonl. External channels are off until you
-# configure them: set ntfy_topic_url, or put a Slack incoming-webhook URL in the env var
-# named by slack_webhook_env (keep it in .env, never in this file).
+# configure them, in .env (never in this file, which is committed): ATLAS_NTFY_TOPIC_URL for
+# an ntfy topic (alerts and the weekly digest; see docs/runbooks.md "Phone notifications") and
+# ATLAS_SLACK_WEBHOOK_URL for a Slack incoming webhook. ntfy_topic_url below overrides .env.
 cooldown_days: 7   # the same alert (rule + subject + direction) fires at most once per window
 max_per_run: 10    # rate limit; the rest are logged as suppressed
 

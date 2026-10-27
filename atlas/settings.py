@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # HTTP API (atlas api serve). Unset = localhost only, no auth.
     api_token: SecretStr | None = None
 
+    # Delivery of alerts and the weekly digest (atlas.alerts.send_text). Keep both in .env:
+    # anyone who knows an ntfy.sh topic URL can read it, and a Slack webhook can post.
+    ntfy_topic_url: SecretStr | None = None  # ATLAS_NTFY_TOPIC_URL
+    slack_webhook_url: SecretStr | None = None  # ATLAS_SLACK_WEBHOOK_URL
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

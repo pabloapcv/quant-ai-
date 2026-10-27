@@ -281,6 +281,8 @@ project's earlier name so existing jobs keep working.
 | `ATLAS_LLM_DAILY_TOKEN_BUDGET` | Hard daily cap on Claude usage, in weighted tokens (0 = no cap) | 3,000,000 |
 | `ATLAS_ASSISTANT_MODEL` | Claude model for the assistant | `claude-opus-5-5` |
 | `ATLAS_API_TOKEN` | Required to serve the app beyond this computer | none (localhost only) |
+| `ATLAS_NTFY_TOPIC_URL` | Push alerts and the weekly digest to your phone (ntfy) | none |
+| `ATLAS_SLACK_WEBHOOK_URL` | Post alerts and the weekly digest to Slack | none |
 | `ATLAS_DATA_DIR` | Where data, reports and logs live | `data` |
 | `ATLAS_LOG_LEVEL` | Logging detail | `INFO` |
 
