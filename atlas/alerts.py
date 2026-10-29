@@ -49,6 +49,7 @@ class Rule(BaseModel):
     include_holds: bool = False
     series: dict[str, str] = Field(default_factory=dict)  # price_move: series id -> plain name
     consecutive: int = 1  # pipeline_failure: a step must fail on this many runs in a row
+    cooldown_days: int | None = None  # overrides the config-wide cooldown for this rule
 
 
 class Channels(BaseModel):
@@ -400,8 +401,14 @@ def dispatch(
     client: httpx.Client | None = None,
 ) -> list[Alert]:
     """Apply cooldown and rate limit, deliver, log, and update ``state`` in place."""
-    cutoff = now - timedelta(days=cfg.cooldown_days)
-    state.fired = {k: t for k, t in state.fired.items() if t > cutoff}
+    # keys are "<rule name>:...": each rule keeps its keys for its own cooldown
+    cooldown = {r.name: r.cooldown_days or cfg.cooldown_days for r in cfg.rules}
+
+    def keep(key: str, t: datetime) -> bool:
+        days = cooldown.get(key.split(":", 1)[0], cfg.cooldown_days)
+        return t > now - timedelta(days=days)
+
+    state.fired = {k: t for k, t in state.fired.items() if keep(k, t)}
     sent = 0
     for a in alerts:
         if a.key in state.fired:

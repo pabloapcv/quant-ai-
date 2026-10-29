@@ -36,6 +36,7 @@ rules:
     kind: price_move
     days: 92                     # about 3 months (commodity prices are monthly averages)
     threshold: 0.20              # a rise or fall of 20% or more
+    cooldown_days: 400           # keys carry the data month: one alert per new month of data
     series:
       CMDTY.OIL.BRENT: Crude oil (Brent)
       CMDTY.GAS.US: Natural gas (US)

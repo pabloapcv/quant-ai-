@@ -247,3 +247,24 @@ def test_pipeline_failure_needs_consecutive_runs() -> None:
     assert a.message == "pipeline steps failed: ingest:fed_text"
     once = Rule(name="data_quality", kind="pipeline_failure")
     assert len(check_pipeline(once, ["x"], today)) == 1  # default: every failure
+
+
+def test_rule_cooldown_overrides_config(tmp_path: Path) -> None:
+    from atlas.alerts import Alert, AlertConfig, AlertState, Rule, dispatch
+
+    cfg = AlertConfig(
+        cooldown_days=7,
+        rules=[
+            Rule(name="price_move_3m", kind="price_move", cooldown_days=400),
+            Rule(name="regime_prob_cross", kind="regime_prob_cross"),
+        ],
+    )
+    now = datetime(2026, 11, 20, tzinfo=UTC)
+    old = now - timedelta(days=30)
+    state = AlertState(fired={"price_move_3m:X:up:2026-09": old, "regime_prob_cross:q:0.5:up": old})
+    alerts = [
+        Alert(rule="price_move_3m", key="price_move_3m:X:up:2026-09", message="m"),
+        Alert(rule="regime_prob_cross", key="regime_prob_cross:q:0.5:up", message="m"),
+    ]
+    out = dispatch(cfg, alerts, state, tmp_path, now)
+    assert [a.status for a in out] == ["cooldown", "sent"]  # 30 days: inside 400, past 7
