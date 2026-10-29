@@ -85,7 +85,7 @@ flowchart LR
     B --> C["Fixed models<br/>economy reading, recession risk,<br/>market rankings, scenarios, analogs"]
     C --> D["Frozen daily views<br/>scored later against<br/>what actually happened"]
     C --> E["Briefing, Your business,<br/>What if (rule-based text)"]
-    C --> F["Claude, via 15 data tools"]
+    C --> F["Claude, via 16 data tools"]
     F --> G["Number checker<br/>every figure must match<br/>a tool result"]
     G --> H["Ask Ramon,<br/>weekly note"]
 ```
@@ -353,7 +353,7 @@ atlas/                Python package (the engine)
   backtest/           backtesting, statistical gates, the locked holdout
   views/              publishing, freezing, scoring and reproducing views
   text/               Fed and ECB documents, search, tone readings
-  agent/              Claude assistant, its 15 tools, number checker, evals, weekly note
+  agent/              Claude assistant, its 16 tools, number checker, evals, weekly note
   briefing.py         rule-based Briefing
   lens.py             Your business views and the what-if events
   api.py, web/        HTTP API and the web app

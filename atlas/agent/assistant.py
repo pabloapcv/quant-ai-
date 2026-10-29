@@ -39,8 +39,8 @@ results for each signal, model portfolios, point-in-time data series, the macro 
 historical macro analogs, a factor-shock scenario engine, and central-bank text: FOMC \
 statements and minutes, ECB statements and press-conference transcripts (search and \
 statement-to-statement changes), a plain-language business lens on one sector, stock market, \
-currency or commodity, and recent moves in key prices (energy, metals, crops, the dollar, \
-Treasury and mortgage rates).
+currency or commodity, recent moves in key prices (energy, metals, crops, the dollar, \
+Treasury and mortgage rates), and time-series views on US corporate credit and crypto.
 
 How to answer:
 - Get every number you state from a tool result in this conversation, at the precision the \

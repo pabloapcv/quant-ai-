@@ -243,6 +243,17 @@ TOOL_SPECS: list[dict[str, Any]] = [
         ),
     },
     {
+        "name": "get_credit_crypto_views",
+        "description": (
+            "Time-series views for US corporate credit (Moody's Aaa and Baa bonds vs 10-year "
+            "Treasuries) and crypto (Bitcoin, Ether vs cash): the probability that each beats "
+            "its benchmark over the next 3 months, the stance, the drivers (12-month trend; "
+            "spread vs its 5-year average for credit), and the 2021-2025 holdout check. Those "
+            "probabilities were no better than historical base rates on 2021-2025."
+        ),
+        "input_schema": _schema({}, []),
+    },
+    {
         "name": "get_key_prices",
         "description": (
             "Moves over the past 3 and 12 months in prices that matter to businesses: oil, US "
@@ -291,6 +302,7 @@ class ToolKit:
             "get_ecb_statement": self.get_ecb_statement,
             "get_business_lens": self.get_business_lens,
             "get_key_prices": self.get_key_prices,
+            "get_credit_crypto_views": self.get_credit_crypto_views,
         }
         self._text_index: BM25Index | None = None
 
@@ -523,6 +535,33 @@ class ToolKit:
                 "error": f"no {MARKETS[market]['noun']} named {asset!r}",
                 "assets": assets(facts),
             }
+
+    def get_credit_crypto_views(self) -> dict[str, Any]:
+        from atlas.models.timeseries import (
+            FAMILY,
+            UNIVERSE,
+            latest_views,
+            sleeve_panel,
+            walk_forward,
+        )
+
+        views = latest_views(walk_forward(sleeve_panel(self.store)))
+        opened = HoldoutLog(self.data_dir).openings(UNIVERSE, FAMILY)
+        check = opened[-1] if opened else {}
+        return {
+            "views": views,
+            "holdout_2021_2025": {
+                "pooled": check.get("ensemble"),
+                "by_asset": check.get("assets"),
+                "summary": "probabilities no better than the historical base rates"
+                if check
+                else "not opened",
+            },
+            "conventions": {
+                "prob_positive_excess": "chance the next 3-month return beats the benchmark",
+                "spread_vs_5y_avg": "pct points; positive = spread wider (cheaper) than usual",
+            },
+        }
 
     def get_key_prices(self) -> dict[str, Any]:
         from atlas.briefing import _price_series, price_moves

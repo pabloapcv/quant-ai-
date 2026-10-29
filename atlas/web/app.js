@@ -79,7 +79,7 @@
     get_series: 'Read economic data', get_regime: 'Read the economy', find_analogs: 'Compared with history',
     run_scenario: 'Ran a what-if', search_documents: 'Searched central-bank texts',
     get_ecb_statement: 'Read ECB statement', get_fomc_statement: 'Read Fed statement',
-    get_business_lens: 'Looked at your business', get_key_prices: 'Checked key prices',
+    get_business_lens: 'Looked at your business', get_key_prices: 'Checked key prices', get_credit_crypto_views: 'Read credit & crypto views',
   };
 
   // ---------------------------------------------------------------- tabs
@@ -463,6 +463,20 @@
       ], v.views);
     } catch (e) { failBox($('#views-table'), e); }
   }
+  async function loadSleeves() {
+    try {
+      const sl = await api('/v1/sleeves');
+      $('#sleeves-table').innerHTML = table([
+        { h: 'Asset', f: (r) => esc(r.asset_name) },
+        { h: 'Month', f: (r) => esc(String(r.as_of).slice(0, 7)) },
+        { h: 'P(beat)', num: true, f: (r) => pct(r.prob_positive_excess, 0) },
+        { h: 'Stance', f: (r) => pill(r.stance) },
+        { h: '12m trend', num: true, f: (r) => spct(r.drivers.trend_12m) },
+        { h: 'Spread vs 5y avg', num: true, f: (r) => (r.drivers.spread_vs_5y_avg === null ? '—' : `${num(Math.abs(r.drivers.spread_vs_5y_avg) < 0.005 ? 0 : r.drivers.spread_vs_5y_avg, 2)} pts`) },
+      ], sl.views);
+      $('#sleeves-note').textContent = sl.trust_note;
+    } catch (e) { failBox($('#sleeves-table'), e); }
+  }
   $('#views-universe').addEventListener('change', loadViews);
   $('#views-horizon').addEventListener('change', loadViews);
 
@@ -552,7 +566,7 @@
   $('#token').value = store.get('ramon_token', '');
   $('#token').addEventListener('change', (e) => store.set('ramon_token', e.target.value));
 
-  const loaders = { brief: loadBrief, whatif: loadPresets, ask: loadUsage, macro: loadMacro, views: loadViews, analogs: loadAnalogs, scenario: fillUniverses, system: loadSystem };
+  const loaders = { brief: loadBrief, whatif: loadPresets, ask: loadUsage, macro: loadMacro, views: () => { loadViews(); loadSleeves(); }, analogs: loadAnalogs, scenario: fillUniverses, system: loadSystem };
   $('#analyst-mode').addEventListener('change', (e) => setAnalyst(e.target.checked));
   setAnalyst(store.get('ramon_analyst', '') === '1');
   show(store.get('ramon_tab', 'brief'));
