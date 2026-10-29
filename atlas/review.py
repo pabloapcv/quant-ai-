@@ -55,7 +55,9 @@ def _eval_scores(data_dir: Path) -> dict[str, Any]:
 
     def score(path: Path) -> tuple[float | None, int]:
         rs = json.loads(path.read_text()).get("results", [])
-        return (round(sum(r["score"] for r in rs) / len(rs), 1) if rs else None), len(rs)
+        if not rs or sum(1 for r in rs if r.get("error")) > 0.1 * len(rs):
+            return None, 0  # a run cut short by errors (e.g. no credits) measures nothing
+        return round(sum(r["score"] for r in rs) / len(rs), 1), len(rs)
 
     if base.exists():
         out["baseline"], _ = score(base)

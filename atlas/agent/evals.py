@@ -238,6 +238,11 @@ def score_case(case: Case, answer: Answer, judgement: Judgement | None) -> CaseR
     )
 
 
+def _error_key(error: str) -> str:
+    """An error without its per-request ids, so repeats of one failure compare equal."""
+    return re.sub(r"req_[A-Za-z0-9]+|request_id\W+\S+", "", error).strip()
+
+
 def run_eval(
     ask: Callable[[str], Answer],
     judge: Judge | None,
@@ -281,7 +286,8 @@ def run_eval(
                 error=f"{type(exc).__name__}: {exc}",
             )
         run.results.append(res)
-        last_errors = [*last_errors[-(STOP_AFTER_ERRORS - 1) :], res.error] if res.error else []
+        key = _error_key(res.error)
+        last_errors = [*last_errors[-(STOP_AFTER_ERRORS - 1) :], key] if key else []
         if on_result:
             on_result(res)
     return run

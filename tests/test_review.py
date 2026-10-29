@@ -51,3 +51,19 @@ def test_review_due(tmp_path: Path) -> None:
     (tmp_path / "reports").mkdir()
     (tmp_path / "reports" / "review-2026-10.md").write_text("x")
     assert review_due(tmp_path, date(2026, 11, 3)) is None  # already written
+
+
+def test_error_runs_do_not_count_as_latest_eval(tmp_path: Path) -> None:
+    from atlas.review import _eval_scores
+
+    ev = tmp_path / "evals"
+    ev.mkdir()
+    good = [{"score": 90.0, "error": ""}] * 120
+    bad = [{"score": 0.0, "error": "credit balance is too low"}] * 100 + [
+        {"score": 95.0, "error": ""}
+    ] * 20
+    (ev / "20261020T000000Z.json").write_text(json.dumps({"results": good}))
+    (ev / "20261029T000000Z.json").write_text(json.dumps({"results": bad}))
+    out = _eval_scores(tmp_path)
+    assert out["latest_at"] == "20261020T000000Z"
+    assert out["latest"] == 90.0

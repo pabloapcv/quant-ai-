@@ -144,3 +144,20 @@ def test_executive_cases_penalize_jargon_and_use_their_own_assistant() -> None:
 
     run_eval(ask, None, [case, analyst], model="m", ask_executive=ask_exec)
     assert asked == ["executive", "analyst"]
+
+
+def test_identical_errors_stop_despite_request_ids() -> None:
+    from atlas.agent.evals import STOP_AFTER_ERRORS
+
+    calls: list[str] = []
+
+    def ask(q: str) -> Answer:
+        calls.append(q)
+        raise RuntimeError(
+            f"Error code: 400 - credit balance is too low, 'request_id': 'req_{len(calls)}X'"
+        )
+
+    cases = [Case(id=f"c-{i}", category="views", question=f"q{i}") for i in range(10)]
+    run = run_eval(ask, None, cases, model="m")
+    assert len(calls) == STOP_AFTER_ERRORS
+    assert run.stopped_early.startswith("stopped after")
