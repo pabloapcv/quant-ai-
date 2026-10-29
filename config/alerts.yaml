@@ -53,6 +53,7 @@ rules:
 
   - name: data_quality
     kind: pipeline_failure
+    consecutive: 2               # only steps that failed on two daily runs in a row
 
   - name: live_ic_drift
     kind: live_ic_drift

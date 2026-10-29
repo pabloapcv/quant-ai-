@@ -191,7 +191,7 @@ def test_price_move_alert() -> None:
     obs = [(date(2026, m, 1), v) for m, v in ((5, 100.0), (6, 100.0), (7, 110.0), (9, 125.0))]
     (a,) = check_price_move(rule, "CMDTY.WHEAT", "Wheat", obs)
     assert a.message == "Wheat prices rose 25% over the past 3 months (latest September 2026)."
-    assert a.key == "price_move_3m:CMDTY.WHEAT:up"
+    assert a.key == "price_move_3m:CMDTY.WHEAT:up:2026-09"
     assert check_price_move(rule, "CMDTY.WHEAT", "Wheat", obs[:-1]) == []
 
 
@@ -235,3 +235,15 @@ def test_ntfy_topic_from_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     finally:
         monkeypatch.delenv("ATLAS_NTFY_TOPIC_URL")
         get_settings.cache_clear()
+
+
+def test_pipeline_failure_needs_consecutive_runs() -> None:
+    from atlas.alerts import Rule, check_pipeline
+
+    rule = Rule(name="data_quality", kind="pipeline_failure", consecutive=2)
+    today = date(2026, 10, 28)
+    assert check_pipeline(rule, ["ingest:fed_text"], today, previous=[]) == []  # one-off
+    (a,) = check_pipeline(rule, ["ingest:fed_text", "x"], today, previous=["ingest:fed_text"])
+    assert a.message == "pipeline steps failed: ingest:fed_text"
+    once = Rule(name="data_quality", kind="pipeline_failure")
+    assert len(check_pipeline(once, ["x"], today)) == 1  # default: every failure

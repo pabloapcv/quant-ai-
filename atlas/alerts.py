@@ -48,6 +48,7 @@ class Rule(BaseModel):
     sigmas: float = 2.0
     include_holds: bool = False
     series: dict[str, str] = Field(default_factory=dict)  # price_move: series id -> plain name
+    consecutive: int = 1  # pipeline_failure: a step must fail on this many runs in a row
 
 
 class Channels(BaseModel):
@@ -83,6 +84,7 @@ class AlertInputs(BaseModel):
     series: dict[str, list[tuple[date, float]]] = Field(default_factory=dict)
     views: dict[str, list[list[dict[str, Any]]]] = Field(default_factory=dict)  # newest last
     failed_steps: list[str] = Field(default_factory=list)
+    previous_failed_steps: list[str] = Field(default_factory=list)  # the run before this one
     ic_monitor: dict[str, dict[str, Any]] = Field(default_factory=dict)
     # recent central-bank statements: doc_id, bank, meeting_date, direction, sentence
     cb_statements: list[dict[str, str]] = Field(default_factory=list)
@@ -202,7 +204,13 @@ def check_view_flips(
     return out
 
 
-def check_pipeline(rule: Rule, failed: Sequence[str], today: date) -> list[Alert]:
+def check_pipeline(
+    rule: Rule, failed: Sequence[str], today: date, previous: Sequence[str] = ()
+) -> list[Alert]:
+    """Failed steps; with ``consecutive >= 2`` only those that also failed on the previous run
+    (a one-off network error then stays in the log instead of becoming a push)."""
+    if rule.consecutive >= 2:
+        failed = [f for f in failed if f in set(previous)]
     if not failed:
         return []
     return [
@@ -273,7 +281,7 @@ def evaluate(
             for universe, files in sorted(inputs.views.items()):
                 alerts += check_view_flips(rule, universe, files)
         elif rule.kind == "pipeline_failure":
-            alerts += check_pipeline(rule, inputs.failed_steps, today)
+            alerts += check_pipeline(rule, inputs.failed_steps, today, inputs.previous_failed_steps)
         elif rule.kind == "live_ic_drift":
             alerts += check_live_ic(rule, inputs.ic_monitor)
         elif rule.kind == "cb_decision":
@@ -322,7 +330,8 @@ def check_price_move(
     return [
         Alert(
             rule=rule.name,
-            key=f"{rule.name}:{series_id}:{'up' if up else 'down'}",
+            # one alert per new observation: the same month's data never fires twice
+            key=f"{rule.name}:{series_id}:{'up' if up else 'down'}:{last_d:%Y-%m}",
             message=f"{name} prices {'rose' if up else 'fell'} {abs(chg):.0%} over the past "
             f"{months} months (latest {last_d:%B %Y}).",
             value=chg,
@@ -488,8 +497,20 @@ def run_alerts(
     if ic_monitor is None:
         runs = sorted((data_dir / "runs").glob("2*.json"))
         ic_monitor = json.loads(runs[-1].read_text()).get("ic_monitor", {}) if runs else {}
+    prev_runs = sorted((data_dir / "runs").glob("2*.json"))
+    previous_failed = (
+        [
+            st["name"]
+            for st in json.loads(prev_runs[-1].read_text()).get("steps", [])
+            if not st.get("ok", True)
+        ]
+        if prev_runs
+        else []
+    )
     inputs = AlertInputs(
-        failed_steps=list(failed_steps), ic_monitor={k: dict(v) for k, v in ic_monitor.items()}
+        failed_steps=list(failed_steps),
+        previous_failed_steps=previous_failed,
+        ic_monitor={k: dict(v) for k, v in ic_monitor.items()},
     )
     if "US.IP" in cube:
         rep = RegimeEngine(cube).run(now.date(), with_hmm=False)

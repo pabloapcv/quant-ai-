@@ -102,9 +102,8 @@ async def test_run_daily_without_ingest(tmp_path: Path, monkeypatch: pytest.Monk
     mon = rep.ic_monitor["ctry_dev_lcl:3M"]
     assert mon["backtest"]["n"] > 100
     assert mon["live_ics"] == []
-    assert [a["rule"] for a in rep.alerts] == ["data_quality"]  # the failed ind12 step
-    assert "views:ind12:3M" in rep.alerts[0]["message"]
-    assert rep.alerts[0]["delivery"] == {}  # no channel configured: log only
+    # the failed ind12 step is a first failure: data_quality needs two runs in a row
+    assert [a["rule"] for a in rep.alerts] == []
     assert by["views:ctry_dev_lcl:3M"].ok
     assert "frozen" in by["views:ctry_dev_lcl:3M"].detail
     assert not by["views:ind12:3M"].ok  # no industry data: recorded, run continues
