@@ -57,6 +57,9 @@ data on its own after each daily pipeline run, so it never needs a restart for n
 
 ## Phone notifications (ntfy)
 
+Currently off: `ATLAS_NTFY_TOPIC_URL` is commented out in `.env`. Remove the `# ` to turn it
+back on; nothing else needs to change.
+
 Alerts and the Monday briefing digest can be pushed to a phone with [ntfy](https://ntfy.sh):
 
 1. Put a private topic in `.env` (never in `config/alerts.yaml`, which is committed):

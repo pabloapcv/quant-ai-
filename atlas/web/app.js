@@ -211,7 +211,7 @@
               <div class="small muted">${e.regime_confidence === 'clear' ? 'Signals agree' : 'Signals are mixed: treat as a tentative read'}</div></div>
             <div class="kpi"><div class="k">Recession risk, next 12 months</div><div class="v">${light(e.recession.light, `${cap(e.recession.word)} · ${pct(e.recession.probability, 0)}`)}</div></div>
             <div class="kpi"><div class="k">Economic growth right now</div><div class="v">${g ? `${num(g.gdp_saar_pct, 1)}% <span class="small muted">annual pace</span>` : '—'}</div>
-              <div class="small muted">${g ? `Atlanta Fed estimate for ${esc(String(g.quarter).replace(/(\d{4})Q(\d)/, 'Q$2 $1'))}, updated ${esc(dayName(g.updated))}` : ''}</div></div>
+              <div class="small muted">${g ? `Atlanta Fed estimate for ${esc(String(g.quarter).replace(/(\d{4})Q(\d)/, 'Q$2 $1'))}, updated ${esc(dayName(g.updated))}${e.growth_note ? `. ${esc(e.growth_note)}` : ''}` : ''}</div></div>
             <div class="kpi"><div class="k">Borrowing &amp; market conditions</div><div class="v">${esc(cap(e.financial_conditions.split(' (')[0]))}</div>
               <div class="small muted">${esc((e.financial_conditions.split(' (')[1] || '').replace(')', ''))}</div></div>
           </div></div>`);

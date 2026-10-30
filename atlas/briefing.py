@@ -207,6 +207,34 @@ def _plain_alert(a: dict[str, Any]) -> str:
     return str(a.get("message", ""))
 
 
+# what each growth indicator means when it is the one holding the reading down
+GROWTH_DRAGS = {
+    "ip_yoy": "weak factory output",
+    "payrolls_6m_ann": "slow hiring",
+    "unrate_12m_chg": "rising unemployment",
+    "claims_yoy": "rising jobless claims",
+    "retail_yoy": "weak retail sales",
+    "permits_yoy": "falling building permits",
+    "sentiment": "weak consumer sentiment",
+}
+
+
+def _growth_note(reg: dict[str, Any]) -> str:
+    """One line when the monthly growth reading and the GDP estimate seem to disagree."""
+    nowcast = (reg.get("gdp_nowcast") or {}).get("gdp_saar_pct")
+    if nowcast is None:
+        return ""
+    score = reg["growth"]["score"]
+    if score < 0 and nowcast >= 2.5:
+        parts: dict[str, float] = reg["growth"].get("contributions") or {}
+        drag = min(parts, key=lambda k: parts[k]) if parts else ""
+        why = f", held down mostly by {GROWTH_DRAGS[drag]}" if drag in GROWTH_DRAGS else ""
+        return f"Stronger than the monthly indicators behind the growth reading{why}."
+    if score > 0 and nowcast < 1:
+        return "Weaker than the monthly indicators behind the growth reading."
+    return ""
+
+
 def _economy(reg: dict[str, Any]) -> dict[str, Any] | None:
     if "error" in reg:
         return None
@@ -236,6 +264,7 @@ def _economy(reg: dict[str, Any]) -> dict[str, Any] | None:
         "financial_conditions": _conditions(fc),
         "recession": {"probability": rec, "word": rec_word, "light": rec_light},
         "gdp_nowcast": reg.get("gdp_nowcast") or None,
+        "growth_note": _growth_note(reg),
         "data_month": reg["data_month"],
         "facts": {"growth_score": g, "inflation_score": i, "financial_conditions_score": fc},
     }
@@ -364,6 +393,7 @@ def to_markdown(
             lines.append(
                 f"- **Growth right now:** {g['gdp_saar_pct']:.1f}% annual pace "
                 f"(Atlanta Fed estimate for {_quarter(g['quarter'])}, updated {g['updated']})"
+                + (f". {e['growth_note']}" if e.get("growth_note") else "")
             )
         lines += [f"- **Borrowing and market conditions:** {e['financial_conditions']}", ""]
     if watchlist:

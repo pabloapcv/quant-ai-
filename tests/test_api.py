@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -103,6 +104,23 @@ def test_chat_budget_error(data: Path, tmp_path: Path) -> None:
         body = "".join(r.iter_text())
     assert body.startswith("event: error")
     assert '"kind": "budget"' in body
+
+
+def test_chat_out_of_credits_is_plain(data: Path) -> None:
+    import anthropic
+    import httpx
+
+    def no_credits(**_: object) -> None:
+        response = httpx.Response(400, request=httpx.Request("POST", "http://test"))
+        message = "Your credit balance is too low (request_id req_123)"
+        raise anthropic.BadRequestError(message, response=response, body=None)
+
+    client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=no_credits)))
+    app = create_app(Settings(data_dir=data, config_dir=REPO / "config"), llm_client=client)
+    with TestClient(app).stream("POST", "/v1/chat", json={"question": "hi"}) as r:
+        body = "".join(r.iter_text())
+    assert '"kind": "credits"' in body
+    assert "req_123" not in body
 
 
 def test_web_app_and_central_banks(client: TestClient) -> None:

@@ -197,3 +197,15 @@ def test_digest_is_short_and_plain() -> None:
     )
     assert len(long) <= DIGEST_LIMIT
     assert long.endswith("(see the full note)")
+
+
+def test_growth_note_explains_a_gap_with_the_gdp_estimate() -> None:
+    from atlas.briefing import _growth_note
+
+    soft = {"score": -0.2, "contributions": {"ip_yoy": 0.1, "sentiment": -0.2}}
+    strong = {"gdp_saar_pct": 3.2}
+    assert "weak consumer sentiment" in _growth_note({"growth": soft, "gdp_nowcast": strong})
+    assert _growth_note({"growth": soft, "gdp_nowcast": {"gdp_saar_pct": 1.5}}) == ""
+    assert _growth_note({"growth": soft}) == ""
+    firm = {"score": 0.3, "contributions": {}}
+    assert "Weaker" in _growth_note({"growth": firm, "gdp_nowcast": {"gdp_saar_pct": 0.4}})

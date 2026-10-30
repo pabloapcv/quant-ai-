@@ -27,6 +27,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+import anthropic
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -60,6 +61,17 @@ class ScenarioRequest(BaseModel):
 class ChatTurn(BaseModel):
     question: str = Field(max_length=4000)
     answer: str = Field(max_length=20000)
+
+
+def _claude_error(exc: anthropic.APIError) -> dict[str, str]:
+    """What a reader sees when Claude can't answer: never the raw API error."""
+    if "credit balance" in str(exc).lower():
+        message = (
+            "Ask Ramon is paused: the Anthropic credit balance has run out. "
+            "The Briefing, Your business and What if keep working."
+        )
+        return {"kind": "credits", "message": message}
+    return {"kind": "claude", "message": "Ramon couldn't reach Claude just now. Please try again."}
 
 
 class ChatRequest(BaseModel):
@@ -263,7 +275,9 @@ def create_app(
 
     @app.get("/v1/regime", dependencies=guarded)
     def regime(as_of: str = "") -> dict[str, Any]:
-        return call(lambda k: k.get_regime(as_of))
+        if as_of:
+            return call(lambda k: k.get_regime(as_of))
+        return from_disk("regime", lambda: call(lambda k: k.get_regime("")))  # ~18 s to build
 
     @app.get("/v1/views", dependencies=guarded)
     def views(
@@ -405,6 +419,8 @@ def create_app(
                 )
             except BudgetExceeded as exc:
                 events.put(_sse("error", {"kind": "budget", "message": str(exc)}))
+            except anthropic.APIError as exc:
+                events.put(_sse("error", _claude_error(exc)))
             except Exception as exc:
                 events.put(_sse("error", {"kind": type(exc).__name__, "message": str(exc)}))
             finally:

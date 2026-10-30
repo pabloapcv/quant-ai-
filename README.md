@@ -66,7 +66,7 @@ Start it with `ramon api serve` and open **http://127.0.0.1:8710/**.
   "red team" pass, with every number checked (`ramon report weekly`, Mondays 07:00).
 - **Alerts**: rules in `config/alerts.yaml`, for example the recession probability crossing
   40%, a jump in corporate borrowing spreads, a central-bank rate change, a key commodity
-  rising or falling 20% in three months, or a model lean flipping. They are logged daily and can be sent to ntfy or Slack once configured.
+  rising or falling 20% in three months, or a model lean flipping. They appear under Recent warnings in the Briefing and are logged daily. Sending them to a phone (ntfy) or Slack is optional and currently off.
 
 ### Other interfaces
 
@@ -301,7 +301,9 @@ Other configuration files:
 - **Claude:** pay-as-you-go through Anthropic. Usage is metered on every call
   (`ramon usage`) and stops at the daily budget. The Briefing, Your business and What if
   pages use no tokens. A chat question typically uses tens of thousands of weighted
-  tokens; prompt caching reduces repeat costs.
+  tokens; prompt caching reduces repeat costs. If the Anthropic balance runs out, Ask
+  Ramon pauses with a plain message and the weekly note is skipped; everything else keeps
+  running.
 - **Computer:** runs on an ordinary Mac. The data store is about 100 MB.
 
 ---
@@ -396,14 +398,14 @@ The project is built in phases defined in [PRD.md](PRD.md#15-delivery-plan--acce
 | P3 Signals and backtester | 34 signals across 10 universes, statistical gates, 118 signal cards, test your own signal file | Built; 0 signals pass every gate |
 | P4 Views and portfolio | Ensemble views with ranges, regime context, analogs and risks; model portfolio; Black-Litterman option | Built; 2021-2025 skill below the PRD targets |
 | P5 Global | 33 country markets, major and EM currencies, developed and EM bonds, commodities, credit, crypto | Built; global sectors need paid data |
-| P6 AI assistant | Tools, chat, number checker, weekly note and digest, evals, central-bank text | Built; sending needs a channel; news needs a source |
+| P6 AI assistant | Tools, chat, number checker, weekly note and digest, evals, central-bank text | Built; phone delivery tested and switched off for now; news needs a source |
 | P7 Product | Web app, executive briefing, watchlist, alerts within minutes of releases, monitoring | Done |
 | P8 Live paper track | Frozen views scored daily, monthly model review | Running; 12-month track completes about October 2027 |
 
 Criterion-by-criterion status with evidence: [docs/phase_status.md](docs/phase_status.md).
 
-**Next steps:** choose a market-data vendor (P1) and a news source (P6); connect a
-delivery channel for alerts and the weekly digest; let the live track accumulate a year of evidence before relying on the market
+**Next steps:** choose a market-data vendor (P1) and a news source (P6);
+let the live track accumulate a year of evidence before relying on the market
 leans; optional hosted deployment with sign-in.
 
 ---
