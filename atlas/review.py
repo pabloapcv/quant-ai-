@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -253,9 +253,16 @@ def write_review(data_dir: Path, returns: dict[str, Any], month: str, today: dat
 
 
 def review_due(data_dir: Path, today: date) -> str | None:
-    """The previous month, if its review is missing and we are in the first week (else None)."""
+    """The previous month, if it has no final review and we are in the first week (else None).
+
+    A review written before its month ended (by hand, mid-month) is a draft and gets replaced.
+    """
     if today.day > 7:
         return None
     prev = date(today.year - (today.month == 1), (today.month - 2) % 12 + 1, 1)
     month = prev.isoformat()[:7]
-    return None if (data_dir / "reports" / f"review-{month}.md").exists() else month
+    path = data_dir / "reports" / f"review-{month}.md"
+    final = path.exists() and datetime.fromtimestamp(
+        path.stat().st_mtime, UTC
+    ).date() >= today.replace(day=1)
+    return None if final else month

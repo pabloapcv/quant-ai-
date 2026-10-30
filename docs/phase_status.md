@@ -1,8 +1,8 @@
 # Phase status: P3 to P8 against the PRD exit criteria
 
-Status as of 2026-10-26. Each criterion from PRD §15 is marked **Met**, **Not met** (the
+Status as of 2026-10-30. Each criterion from PRD §15 is marked **Met**, **Not met** (the
 work is done but the result falls short), **Blocked** (needs something outside the code: a
-data vendor, a news source, a delivery channel), or **Time-gated** (needs months of live
+data vendor, a news source), or **Time-gated** (needs months of live
 operation). Evidence is the command or file that shows it.
 
 ## Summary
@@ -12,7 +12,7 @@ operation). Evidence is the command or file that shows it.
 | P3 Signals + backtester | Done | 3 of 4 met; the "8 signals pass every gate" criterion is not met |
 | P4 Expected returns + ensemble | Done except the structural model (needs fundamentals) | Not met: holdout skill below the targets |
 | P5 Global expansion | Countries, FX, rates, commodities, credit, crypto done; global sectors blocked | Not met: global sectors need paid data |
-| P6 NLP + LLM agent | Done except transcripts and news (blocked: no source) | 2 of 3 met; auto-sent report needs a delivery channel |
+| P6 NLP + LLM agent | Done except transcripts and news (blocked: no source) | 2 of 3 met; the auto-sent report is on its 3-week count |
 | P7 Product hardening | Done | Met, with a web app instead of Next.js (decision below) |
 | P8 Live paper track | Done | Time-gated: the 12-month track completes about October 2027 |
 
@@ -77,7 +77,7 @@ Holdout openings (3-month ensemble, 2021-2025; "clean" = researched before 2021 
 |---|---|---|
 | Grounding 100% on the golden set | **Met** | baseline run: every answer fully grounded (`data/evals/baseline.json`) |
 | Eval score >= 85 / 100 | **Met** | 97.3 on 160 questions; 96.7 on the executive questions |
-| Weekly report auto-sent for 3 consecutive weeks | **Blocked** | the Monday job writes the report and sends a digest (`report weekly`), but no ntfy topic or Slack webhook is configured (`config/alerts.yaml`); each run records the result in `delivery.json` |
+| Weekly report auto-sent for 3 consecutive weeks | **Time-gated** | ntfy delivery is configured (`ATLAS_NTFY_TOPIC_URL` in `.env`). The Monday job sends the digest (`report weekly`) and records it in `delivery.json`; the first send is 2026-11-02. The digest needs no Claude credits, but the written note does |
 | Central-bank text | **Done** | FOMC (2006-) and ECB (1998-) statements, minutes, press conferences; search and tone |
 | Earnings-call transcripts, news | **Blocked** | no licensed source chosen |
 
@@ -90,7 +90,7 @@ Holdout openings (3-month ensemble, 2021-2025; "clean" = researched before 2021 
 | Observability, auth | **Met** | structlog, Prometheus `/metrics`, drift monitor; bearer token for non-local serving |
 | User story 1: Monday report with views heatmap, top changes, risks | **Met** | `data/reports/<date>/report.md` (heatmap section built by code) |
 | User story 2: "why underweight X?" | **Met** | views carry drivers, analogs, risks and the invalidation rule; Ask Ramon explains them |
-| User story 4: alert within 15 minutes of a regime cross or view flip | **Met** | alerts run about a minute after each release slot brings new data (release-day ingest); view flips are checked when views are frozen. Delivery needs a channel (see P6) |
+| User story 4: alert within 15 minutes of a regime cross or view flip | **Met** | alerts run about a minute after each release slot brings new data (release-day ingest); view flips are checked when views are frozen. Delivered by ntfy |
 | User story 5: scenarios with confidence bands | **Met** | What if presets, `POST /v1/scenario` (80% bootstrap bands) |
 | Runbooks | **Met** | `docs/runbooks.md` |
 
@@ -106,5 +106,5 @@ Holdout openings (3-month ensemble, 2021-2025; "clean" = researched before 2021 
 
 1. **A paid market-data vendor** (P1): fundamentals for the structural model, global sectors, futures for commodity roll yield.
 2. **A news / transcript source** (P6).
-3. **A delivery channel**: an ntfy topic URL or a Slack webhook in `config/alerts.yaml` / `.env` (P6, user story 4 delivery).
-4. **Time**: the live track (P8) and, through it, fresh out-of-sample evidence for P3 and P4, which cannot come from the already-opened 2021-2025 holdout.
+3. **Anthropic API credits**: Ask Ramon, the written weekly note, statement extraction and evals stop when they run out (they did on 2026-10-29). The briefing, digest, lens and alerts need none.
+4. **Time**: the weekly send count (P6), the live track (P8) and, through it, fresh out-of-sample evidence for P3 and P4, which cannot come from the already-opened 2021-2025 holdout.

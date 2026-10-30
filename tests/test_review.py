@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+import os
+from datetime import date, datetime
 from pathlib import Path
 
 from atlas.review import _drift, monthly_review, review_due, review_markdown
@@ -11,6 +12,11 @@ def _run(data: Path, name: str, steps: list[tuple[str, bool]], ok: bool) -> None
     (data / "runs").mkdir(parents=True, exist_ok=True)
     body = {"ok": ok, "stale": [], "steps": [{"name": n, "ok": o} for n, o in steps]}
     (data / "runs" / name).write_text(json.dumps(body))
+
+
+def _set_written(path: Path, day: date) -> None:
+    stamp = datetime(day.year, day.month, day.day, 12).timestamp()
+    os.utime(path, (stamp, stamp))
 
 
 def test_review_decisions(tmp_path: Path) -> None:
@@ -49,8 +55,12 @@ def test_review_due(tmp_path: Path) -> None:
     assert review_due(tmp_path, date(2027, 1, 4)) == "2026-12"
     assert review_due(tmp_path, date(2026, 11, 9)) is None  # after the first week
     (tmp_path / "reports").mkdir()
-    (tmp_path / "reports" / "review-2026-10.md").write_text("x")
+    path = tmp_path / "reports" / "review-2026-10.md"
+    path.write_text("x")
+    _set_written(path, date(2026, 11, 2))
     assert review_due(tmp_path, date(2026, 11, 3)) is None  # already written
+    _set_written(path, date(2026, 10, 26))
+    assert review_due(tmp_path, date(2026, 11, 3)) == "2026-10"  # a mid-month draft is replaced
 
 
 def test_error_runs_do_not_count_as_latest_eval(tmp_path: Path) -> None:

@@ -164,6 +164,38 @@ def test_cli_report_dry_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     _ = SimpleNamespace
 
 
+def test_cli_report_without_credits_still_writes_briefing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import anthropic
+    import httpx
+
+    from atlas.agent import report as report_mod
+    from atlas.agent import usage
+    from atlas.cli import app
+    from atlas.settings import get_settings
+
+    def no_credits(*_: Any, **__: Any) -> Any:
+        response = httpx.Response(400, request=httpx.Request("POST", "http://test"))
+        raise anthropic.BadRequestError("credit balance is too low", response=response, body=None)
+
+    data = tmp_path / "data"
+    _country_store(data)
+    monkeypatch.setenv("ATLAS_DATA_DIR", str(data))
+    monkeypatch.setenv("ATLAS_CONFIG_DIR", str(REPO / "config"))
+    monkeypatch.setattr(usage, "make_client", lambda *_: object())
+    monkeypatch.setattr(report_mod.ReportWriter, "write", no_credits)
+    get_settings.cache_clear()
+    try:
+        res = CliRunner().invoke(app, ["report", "weekly", "--no-send"])
+        assert res.exit_code == 1
+        assert "research note not written" in res.output
+        assert list((data / "reports").glob("*/briefing.md"))
+        assert not list((data / "reports").glob("*/report.md"))
+    finally:
+        get_settings.cache_clear()
+
+
 def test_views_heatmap() -> None:
     from atlas.agent.report import heatmap
 

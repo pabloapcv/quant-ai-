@@ -1553,8 +1553,8 @@ def report_weekly(
             "Anthropic credentials missing or invalid: "
             "set ANTHROPIC_API_KEY or run `ant auth login`"
         ) from None
-    except BudgetExceeded as exc:
-        typer.echo(str(exc), err=True)
+    except (BudgetExceeded, anthropic.BadRequestError) as exc:  # the budget, or no credits left
+        typer.echo(f"research note not written: {exc}", err=True)
         raise typer.Exit(code=1) from None
     path = save(report, reports_dir)
     typer.echo(f"wrote {path}")
