@@ -32,6 +32,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.responses import Response
 
 from atlas import jsonsafe
 from atlas.agent.tools import ToolKit
@@ -61,6 +62,15 @@ class ScenarioRequest(BaseModel):
 class ChatTurn(BaseModel):
     question: str = Field(max_length=4000)
     answer: str = Field(max_length=20000)
+
+
+class _FreshStaticFiles(StaticFiles):
+    """The web app, revalidated on every load so an update reaches open browsers."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def _claude_error(exc: anthropic.APIError) -> dict[str, str]:
@@ -161,7 +171,7 @@ def create_app(
     def home() -> RedirectResponse:
         return RedirectResponse("/app/")
 
-    app.mount("/app", StaticFiles(directory=WEB_DIR, html=True), name="app")
+    app.mount("/app", _FreshStaticFiles(directory=WEB_DIR, html=True), name="app")
 
     briefing_cache: dict[str, Any] = {}
     briefing_lock = threading.Lock()

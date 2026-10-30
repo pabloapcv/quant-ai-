@@ -130,7 +130,9 @@ def test_web_app_and_central_banks(client: TestClient) -> None:
     page = client.get("/app/")
     assert page.status_code == 200
     assert "<title>Ramon</title>" in page.text
-    assert client.get("/app/app.js").status_code == 200
+    script = client.get("/app/app.js")
+    assert script.status_code == 200
+    assert script.headers["cache-control"] == "no-cache"
     cb = client.get("/v1/central-banks").json()
     assert set(cb) == {"fomc", "ecb"}  # errors (no documents stored) are reported per bank
 
